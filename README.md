@@ -1,55 +1,29 @@
 # PDD aplikācija
 
-Pakalpojumu dizaina daļas darba organizācija: **React (Vite)**, **Supabase** (auth + dati), izvietošana **GitHub Pages**.
+**Viena `index.html` — bez Node, bez `npm run dev`.** React, Supabase un date-fns ielādējas no tīkla (CDN). Pietiek atvērt failu pārlūkā vai publicēt uz GitHub Pages.
 
-## Repozitorijs
+## Konfigurācija
 
-- **GitHub:** [IrinaKupcova/PDD_aplikacija](https://github.com/IrinaKupcova/PDD_aplikacija) · [iestatījumi](https://github.com/IrinaKupcova/PDD_aplikacija/settings)
-- **Klonēt (SSH):** `git clone git@github.com:IrinaKupcova/PDD_aplikacija.git`
-- **Klonēt (HTTPS):** `git clone https://github.com/IrinaKupcova/PDD_aplikacija.git`
+1. Atver **`index.html`**, atrod `<script type="module">` un aizpildi:
+   - `SUPABASE_URL` — Supabase **Project URL**
+   - `SUPABASE_ANON_KEY` — **anon public** atslēga (*Settings → API*)
+2. Supabase **SQL Editor**: palaid `supabase/migrations/20260327220000_initial_pdd.sql`
+3. **Authentication → URL configuration**: **Site URL** un **Redirect URLs** — tava lappuse (piem. `https://irinakupcova.github.io/PDD_aplikacija/`) un `http://localhost/**` ja vajag.
 
-Lokāli `origin` bieži ir: `git@github.com:IrinaKupcova/PDD_aplikacija.git` — tad `git push -u origin main`.
+## Atvēršana lokāli
 
-### Pēc klona — GitHub + Supabase
+- Dubultklikšķis uz `index.html` vai „Open with” pārlūkā.  
+- Ja pārlūks bloķē `file://` moduļus, augšupielādē to pašu failu uz **HTTPS** (GitHub Pages) vai izmanto citu statisku hostingu.
 
-1. **GitHub → Settings → Secrets → Actions:** `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`.
-2. **GitHub → Settings → Pages:** avots **GitHub Actions**.
-3. **Supabase:** SQL no `supabase/migrations/…` un **Auth URL** kā zemāk.
+## GitHub Pages
 
-Pēc `git push` uz `main` darbplūsma **Deploy GitHub Pages** saliek lapu.
+Repozitorijs: [IrinaKupcova/PDD_aplikacija](https://github.com/IrinaKupcova/PDD_aplikacija)
 
-## Supabase
+1. **Settings → Secrets → Actions**: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (tās darbplūsma ieraksta publicētajā HTML).
+2. **Settings → Pages**: avots **GitHub Actions**.
+3. Push uz `main` — darbplūsma **Deploy GitHub Pages**.
 
-1. Izveido projektu [supabase.com](https://supabase.com) → **Project URL** un **anon public** atslēga (**Settings → API**).
-2. **SQL Editor** → ielīmē un palaid `supabase/migrations/20260327220000_initial_pdd.sql`.
-3. **Authentication → URL configuration** (svarīgi GitHub Pages):
-   - **Site URL**: `https://irinakupcova.github.io/PDD_aplikacija/` (GitHub lietotājvārds **arakstā**, beigās `/` parasti OK.)
-   - **Redirect URLs**: tā pati adrese un `http://localhost:5173/**` izstrādei.
-4. Pēc pirmā testa lietotāja — SQL (aizstāj UUID):  
-   `update public.profiles set role = 'manager' where id = '…';`
+## Piezīmes
 
-## GitHub
-
-1. Repozitorijs `PDD_aplikacija` (vai cits nosaukums — tad pielāgo URL Supabase laukos).
-2. **Settings → Secrets and variables → Actions → New repository secret**:
-   - `VITE_SUPABASE_URL`
-   - `VITE_SUPABASE_ANON_KEY`
-3. **Settings → Pages** → **Build and deployment** → avots: **GitHub Actions** (nevis „Deploy from branch”).
-4. Push uz `main` — pēc minūtes publiskā adrese (ja ieslēgts GitHub Pages no Actions):  
-   `https://irinakupcova.github.io/PDD_aplikacija/`
-
-## Lokāli
-
-```bash
-cp .env.example .env
-# aizpildi VITE_SUPABASE_URL un VITE_SUPABASE_ANON_KEY
-npm install
-npm run dev
-```
-
-`npm run build` izveido mapi `dist/` — to pašu saturu izmanto arī GitHub Actions.
-
-## Supabase + GitHub Pages ikonas
-
-- Aplikācija pārlūkā runā ar Supabase API; servera koda nav.
-- **Anon** atslēga paredzēta klientam; tomēr ieteicams **Row Level Security** (jau migrācijā) un nepublicēt **service_role** atslēgu.
+- **Anon** atslēga tāpat ir redzama pārlūkā; nepublicē **service_role**.
+- Mapes `public/` nav obligātas — darbplūsma izveido `.nojekyll`.

@@ -1,13 +1,833 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="lv">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="PDD — Pakalpojumu dizaina daļas darba organizācija" />
+    <meta name="description" content="PDD — Pakalpojumu dizaina daļa; prombūtnes, Supabase" />
     <title>PDD aplikācija</title>
+    <!--
+      BEZ SERVERA: atver šo failu pārlūkā (file:///…) vai kopē uz jebkuru tīmekļa vietu.
+      1) Scriptā pēc <code>import</code> rindām ieraksti SUPABASE_URL un SUPABASE_ANON_KEY.
+      2) Palaižot no file:// dažās vecākās sistēmās bloķē trešo pušu moduļus — tad lieto
+         to pašu failu caur https (piem. GitHub Pages) vai pārlūka iestatījumos atļauj file piekļuvi.
+    -->
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #0f1419;
+        --surface: #1a222d;
+        --surface2: #243041;
+        --border: #334155;
+        --text: #e8eef6;
+        --muted: #94a3b8;
+        --accent: #38bdf8;
+        --accent-dim: #0ea5e9;
+        --radius: 12px;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        line-height: 1.5;
+      }
+      *, *::before, *::after { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: radial-gradient(1200px 600px at 10% -10%, #1e3a46 0%, transparent 55%),
+          radial-gradient(900px 500px at 100% 0%, #134e4a 0%, transparent 50%), var(--bg);
+        color: var(--text);
+      }
+      #root { min-height: 100vh; }
+      button, input, select, textarea { font: inherit; }
+      button { cursor: pointer; }
+      .app-shell { max-width: 1200px; margin: 0 auto; padding: 1.25rem 1.25rem 3rem; }
+      .app-header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+        padding-bottom: 1rem;
+        border-bottom: 1px solid var(--border);
+      }
+      .app-title { margin: 0; font-size: 1.35rem; font-weight: 600; }
+      .app-sub { margin: 0.25rem 0 0; font-size: 0.9rem; color: var(--muted); }
+      .card-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+        gap: 1rem;
+      }
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 1.1rem;
+        text-align: left;
+        transition: border-color 0.15s, transform 0.12s;
+      }
+      .card:hover { border-color: var(--accent-dim); transform: translateY(-1px); }
+      .card h3 { margin: 0 0 0.35rem; font-size: 1rem; }
+      .card p { margin: 0; font-size: 0.88rem; color: var(--muted); }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.35rem;
+        padding: 0.45rem 0.9rem;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--surface2);
+        color: var(--text);
+      }
+      .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+      .btn-primary {
+        background: linear-gradient(180deg, #0ea5e9, #0284c7);
+        border-color: #0369a1;
+        color: #fff;
+      }
+      .btn-ghost { background: transparent; }
+      .btn-danger { background: #3f1515; border-color: #7f1d1d; color: #fecaca; }
+      .btn-small { padding: 0.25rem 0.55rem; font-size: 0.8rem; }
+      .field { display: flex; flex-direction: column; gap: 0.35rem; }
+      .field label { font-size: 0.8rem; color: var(--muted); }
+      .input, .select, .textarea {
+        padding: 0.5rem 0.65rem;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--bg);
+        color: var(--text);
+      }
+      .textarea { min-height: 72px; resize: vertical; }
+      .stack { display: flex; flex-direction: column; gap: 0.85rem; }
+      .row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+      .banner-warn {
+        padding: 0.65rem 0.9rem;
+        border-radius: 8px;
+        background: #422006;
+        border: 1px solid #854d0e;
+        color: #fde68a;
+        font-size: 0.9rem;
+        margin-bottom: 1rem;
+      }
+      .cal-wrap {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 1rem;
+        overflow: auto;
+      }
+      .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; }
+      .cal-grid {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(64px, 1fr));
+        gap: 4px;
+        min-width: 480px;
+      }
+      .cal-dow {
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        text-align: center;
+        padding: 0.25rem;
+      }
+      .cal-cell {
+        min-height: 72px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--bg);
+        padding: 4px;
+        font-size: 0.75rem;
+      }
+      .cal-cell-out { opacity: 0.45; }
+      .cal-cell-today { outline: 1px solid var(--accent); }
+      .cal-day-num { font-weight: 600; margin-bottom: 2px; }
+      .cal-chip {
+        display: block;
+        border-radius: 4px;
+        padding: 1px 4px;
+        margin-top: 2px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-size: 0.65rem;
+      }
+      .list-panel {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 1rem;
+      }
+      .list-panel h2 { margin: 0 0 0.75rem; font-size: 1rem; }
+      .abs-item {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.65rem;
+        margin-bottom: 0.5rem;
+        background: var(--bg);
+      }
+      .abs-item:last-child { margin-bottom: 0; }
+      .badge {
+        display: inline-block;
+        font-size: 0.7rem;
+        padding: 0.15rem 0.4rem;
+        border-radius: 999px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .badge-pending { background: #422006; color: #fde68a; }
+      .badge-approved { background: #064e3b; color: #a7f3d0; }
+      .badge-rejected { background: #450a0a; color: #fecaca; }
+      .auth-box {
+        max-width: 380px;
+        margin: 3rem auto;
+        padding: 1.5rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+      }
+      .auth-box h1 { margin: 0 0 1rem; font-size: 1.2rem; }
+      .prombutnes-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+        gap: 1rem;
+      }
+      @media (max-width: 900px) {
+        .prombutnes-grid { grid-template-columns: 1fr; }
+      }
+      code { background: var(--surface); padding: 0.1em 0.35em; border-radius: 4px; font-size: 0.9em; }
+    </style>
   </head>
   <body>
+    <noscript><p style="padding:1rem;font-family:system-ui">Ieslēdz JavaScript.</p></noscript>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+
+    <script type="module">
+      import React, { useState, useEffect, useCallback, useMemo } from "https://esm.sh/react@19.0.0";
+      import { createRoot } from "https://esm.sh/react-dom@19.0.0/client";
+      import htm from "https://esm.sh/htm@3.1.1";
+      import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+      import {
+        format,
+        addMonths,
+        eachDayOfInterval,
+        endOfMonth,
+        endOfWeek,
+        isSameMonth,
+        isToday,
+        startOfMonth,
+        startOfWeek,
+      } from "https://esm.sh/date-fns@4.1.0";
+      import { lv } from "https://esm.sh/date-fns@4.1.0/locale/lv";
+
+      // ========= Konfigurācija (aizpildi savu Supabase) =========
+      const SUPABASE_URL = "https://YOUR_PROJECT.supabase.co";
+      const SUPABASE_ANON_KEY = "YOUR_ANON_KEY";
+
+      const html = htm.bind(React.createElement);
+      const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+      function configured() {
+        return (
+          Boolean(SUPABASE_URL && SUPABASE_ANON_KEY) &&
+          !String(SUPABASE_URL).includes("YOUR_PROJECT") &&
+          !String(SUPABASE_ANON_KEY).includes("YOUR_ANON")
+        );
+      }
+
+      function useSession() {
+        const [session, setSession] = useState(null);
+        const [loading, setLoading] = useState(true);
+        useEffect(() => {
+          if (!configured()) {
+            setLoading(false);
+            return;
+          }
+          let cancelled = false;
+          supabase.auth.getSession().then(({ data }) => {
+            if (!cancelled) {
+              setSession(data.session);
+              setLoading(false);
+            }
+          });
+          const { data } = supabase.auth.onAuthStateChange((_e, next) => setSession(next));
+          return () => {
+            cancelled = true;
+            data.subscription.unsubscribe();
+          };
+        }, []);
+        return { session, loading };
+      }
+
+      function useProfile(userId) {
+        const [profile, setProfile] = useState(null);
+        const [loading, setLoading] = useState(Boolean(userId));
+        useEffect(() => {
+          if (!userId || !configured()) {
+            setProfile(null);
+            setLoading(false);
+            return;
+          }
+          let cancelled = false;
+          setLoading(true);
+          supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", userId)
+            .maybeSingle()
+            .then(({ data, error }) => {
+              if (!cancelled) {
+                if (error) console.error(error);
+                setProfile(data ?? null);
+                setLoading(false);
+              }
+            });
+          return () => {
+            cancelled = true;
+          };
+        }, [userId]);
+        return { profile, loading };
+      }
+
+      function AuthScreen() {
+        const [mode, setMode] = useState("signin");
+        const [email, setEmail] = useState("");
+        const [password, setPassword] = useState("");
+        const [fullName, setFullName] = useState("");
+        const [busy, setBusy] = useState(false);
+        const [message, setMessage] = useState(null);
+        async function onSubmit(e) {
+          e.preventDefault();
+          setMessage(null);
+          setBusy(true);
+          try {
+            if (mode === "signup") {
+              const { error } = await supabase.auth.signUp({
+                email,
+                password,
+                options: { data: { full_name: fullName || email.split("@")[0] } },
+              });
+              if (error) setMessage(error.message);
+              else
+                setMessage(
+                  "Konts izveidots. Ja ir ieslēgta e-pasta apstiprināšana, pārbaudi pastkasti."
+                );
+            } else {
+              const { error } = await supabase.auth.signInWithPassword({ email, password });
+              if (error) setMessage(error.message);
+            }
+          } finally {
+            setBusy(false);
+          }
+        }
+        return html`
+          <div class="auth-box">
+            <h1>PDD — Pieslēgšanās</h1>
+            <div class="row" style=${{ marginBottom: "1rem" }}>
+              <button
+                type="button"
+                class=${`btn btn-small ${mode === "signin" ? "btn-primary" : "btn-ghost"}`}
+                onClick=${() => setMode("signin")}
+              >
+                Ieiet
+              </button>
+              <button
+                type="button"
+                class=${`btn btn-small ${mode === "signup" ? "btn-primary" : "btn-ghost"}`}
+                onClick=${() => setMode("signup")}
+              >
+                Reģistrēties
+              </button>
+            </div>
+            <form class="stack" onSubmit=${onSubmit}>
+              ${mode === "signup"
+                ? html`
+                    <div class="field">
+                      <label for="name">Vārds, uzvārds</label>
+                      <input
+                        id="name"
+                        class="input"
+                        value=${fullName}
+                        onChange=${(ev) => setFullName(ev.target.value)}
+                        autoComplete="name"
+                      />
+                    </div>
+                  `
+                : null}
+              <div class="field">
+                <label for="email">E-pasts</label>
+                <input
+                  id="email"
+                  type="email"
+                  class="input"
+                  required
+                  value=${email}
+                  onChange=${(ev) => setEmail(ev.target.value)}
+                  autoComplete="email"
+                />
+              </div>
+              <div class="field">
+                <label for="password">Parole</label>
+                <input
+                  id="password"
+                  type="password"
+                  class="input"
+                  required
+                  minLength=${6}
+                  value=${password}
+                  onChange=${(ev) => setPassword(ev.target.value)}
+                  autoComplete=${mode === "signup" ? "new-password" : "current-password"}
+                />
+              </div>
+              <button type="submit" class="btn btn-primary" disabled=${busy}>
+                ${busy ? "…" : mode === "signup" ? "Izveidot kontu" : "Ieiet"}
+              </button>
+            </form>
+            ${message ? html`<p style=${{ marginTop: "1rem", color: "var(--muted)" }}>${message}</p>` : null}
+          </div>
+        `;
+      }
+
+      function Dashboard({ onOpenPrombutnes }) {
+        return html`
+          <section aria-labelledby="dashboard-title">
+            <h2 id="dashboard-title" class="app-sub" style=${{ marginBottom: "1rem", fontSize: "1rem" }}>
+              Moduļi
+            </h2>
+            <div class="card-grid">
+              <button type="button" class="card" onClick=${onOpenPrombutnes}>
+                <h3>Prombūtnes</h3>
+                <p>Calendārs, pieteikumi un vadītāja akcepts.</p>
+              </button>
+              <div class="card" style=${{ opacity: 0.65, cursor: "default" }}>
+                <h3>Resursi</h3>
+                <p>Plānots.</p>
+              </div>
+              <div class="card" style=${{ opacity: 0.65, cursor: "default" }}>
+                <h3>Uzdevumi</h3>
+                <p>Plānots.</p>
+              </div>
+            </div>
+          </section>
+        `;
+      }
+
+      const dow = ["P", "O", "T", "C", "P", "S", "Sv"];
+      function dayKey(d) {
+        return format(d, "yyyy-MM-dd");
+      }
+      function chipStyle(a) {
+        if (a.status === "approved")
+          return { background: a.type?.color ?? "#34d399", color: "#0f172a" };
+        if (a.status === "rejected") return { background: "#7f1d1d", color: "#fecaca" };
+        return { background: "#854d0e", color: "#fef3c7" };
+      }
+
+      function AbsenceCalendar({ month, onMonthChange, absences }) {
+        const start = startOfWeek(startOfMonth(month), { weekStartsOn: 1 });
+        const end = endOfWeek(endOfMonth(month), { weekStartsOn: 1 });
+        const days = eachDayOfInterval({ start, end });
+        const entriesForDay = (d) => {
+          const key = dayKey(d);
+          return absences.filter((a) => key >= a.start_date && key <= a.end_date);
+        };
+        const title = format(month, "LLLL yyyy", { locale: lv });
+        return html`
+          <div class="cal-wrap">
+            <div class="cal-head">
+              <button type="button" class="btn btn-small btn-ghost" onClick=${() => onMonthChange(addMonths(month, -1))}>
+                ←
+              </button>
+              <strong style=${{ textTransform: "capitalize" }}>${title}</strong>
+              <button type="button" class="btn btn-small btn-ghost" onClick=${() => onMonthChange(addMonths(month, 1))}>
+                →
+              </button>
+            </div>
+            <div class="cal-grid">
+              ${dow.map(
+                (l, i) => html`
+                  <div key=${`dow-${i}`} class="cal-dow">${l}</div>
+                `
+              )}
+              ${days.map((d) => {
+                const inMonth = isSameMonth(d, month);
+                const items = entriesForDay(d);
+                return html`
+                  <div
+                    key=${d.toISOString()}
+                    class=${`cal-cell ${!inMonth ? "cal-cell-out" : ""} ${isToday(d) ? "cal-cell-today" : ""}`}
+                  >
+                    <div class="cal-day-num">${format(d, "d")}</div>
+                    ${items.map((a) => html`
+                      <span
+                        key=${a.id}
+                        class="cal-chip"
+                        style=${chipStyle(a)}
+                        title=${`${a.employee?.full_name ?? "Darbinieks"} — ${a.type?.name ?? ""} (${a.status})`}
+                      >
+                        ${(a.employee?.full_name?.split(" ")[0] ?? "?") + " · " + (a.type?.name ?? "")}
+                      </span>
+                    `)}
+                  </div>
+                `;
+              })}
+            </div>
+          </div>
+        `;
+      }
+
+      function AbsenceRequestForm({ userId, onCreated }) {
+        const [types, setTypes] = useState([]);
+        const [typeId, setTypeId] = useState("");
+        const [startDate, setStartDate] = useState("");
+        const [endDate, setEndDate] = useState("");
+        const [comment, setComment] = useState("");
+        const [busy, setBusy] = useState(false);
+        useEffect(() => {
+          supabase
+            .from("prombutnes_veidi")
+            .select("*")
+            .order("sort_order", { ascending: true })
+            .then(({ data, error }) => {
+              if (error) console.error(error);
+              setTypes(data ?? []);
+            });
+        }, []);
+        async function handleSubmit(e) {
+          e.preventDefault();
+          if (!typeId) return;
+          setBusy(true);
+          try {
+            const { error } = await supabase.from("prombutnes_dati").insert({
+              user_id: userId,
+              type_id: Number(typeId),
+              start_date: startDate,
+              end_date: endDate,
+              comment: comment.trim() || null,
+              status: "pending",
+            });
+            if (error) {
+              alert("Kļūda: " + error.message);
+              return;
+            }
+            setStartDate("");
+            setEndDate("");
+            setComment("");
+            setTypeId("");
+            onCreated();
+          } finally {
+            setBusy(false);
+          }
+        }
+        return html`
+          <div class="list-panel">
+            <h2>Pieteikt prombūtni</h2>
+            <form class="stack" onSubmit=${handleSubmit}>
+              <div class="field">
+                <label for="ptype">Veids</label>
+                <select
+                  id="ptype"
+                  class="select"
+                  required
+                  value=${typeId}
+                  onChange=${(ev) => setTypeId(ev.target.value)}
+                >
+                  <option value="">Izvēlies veidu</option>
+                  ${types.map(
+                    (t) => html`
+                      <option key=${t.id} value=${t.id}>${t.name}</option>
+                    `
+                  )}
+                </select>
+              </div>
+              <div class="row" style=${{ gap: "0.75rem" }}>
+                <div class="field" style=${{ flex: "1 1 140px" }}>
+                  <label for="pstart">No</label>
+                  <input
+                    id="pstart"
+                    type="date"
+                    class="input"
+                    required
+                    value=${startDate}
+                    onChange=${(ev) => setStartDate(ev.target.value)}
+                  />
+                </div>
+                <div class="field" style=${{ flex: "1 1 140px" }}>
+                  <label for="pend">Līdz</label>
+                  <input
+                    id="pend"
+                    type="date"
+                    class="input"
+                    required
+                    value=${endDate}
+                    onChange=${(ev) => setEndDate(ev.target.value)}
+                  />
+                </div>
+              </div>
+              <div class="field">
+                <label for="pcom">Komentārs</label>
+                <textarea
+                  id="pcom"
+                  class="textarea"
+                  placeholder="Nav obligāts"
+                  value=${comment}
+                  onChange=${(ev) => setComment(ev.target.value)}
+                />
+              </div>
+              <button type="submit" class="btn btn-primary" disabled=${busy}>
+                ${busy ? "Sūta…" : "Nosūtīt saskaņošanai"}
+              </button>
+            </form>
+          </div>
+        `;
+      }
+
+      function ManagerApprovals({ currentUserId, onChanged }) {
+        const [pending, setPending] = useState([]);
+        const [busyId, setBusyId] = useState(null);
+        async function load() {
+          const { data: rows, error } = await supabase
+            .from("prombutnes_dati")
+            .select("*, type:prombutnes_veidi(*)")
+            .eq("status", "pending")
+            .order("created_at", { ascending: false });
+          if (error) {
+            console.error(error);
+            return;
+          }
+          const { data: profs } = await supabase.from("profiles").select("id, full_name");
+          const pmap = new Map((profs ?? []).map((p) => [p.id, p]));
+          const list = (rows ?? []).map((r) => ({
+            ...r,
+            type: r.type,
+            employee: pmap.get(r.user_id) ?? null,
+          }));
+          setPending(list);
+        }
+        useEffect(() => {
+          void load();
+        }, []);
+        async function settle(id, status) {
+          setBusyId(id);
+          try {
+            const { error } = await supabase
+              .from("prombutnes_dati")
+              .update({
+                status,
+                approved_by: currentUserId,
+                approved_at: new Date().toISOString(),
+              })
+              .eq("id", id);
+            if (error) {
+              alert(error.message);
+              return;
+            }
+            await load();
+            onChanged();
+          } finally {
+            setBusyId(null);
+          }
+        }
+        if (pending.length === 0) {
+          return html`
+            <div class="list-panel">
+              <h2>Gaidošie akcepti</h2>
+              <p style=${{ margin: 0, color: "var(--muted)" }}>Nav gaidošu iesniegumu.</p>
+            </div>
+          `;
+        }
+        return html`
+          <div class="list-panel">
+            <h2>Gaidošie akcepti</h2>
+            ${pending.map(
+              (a) => html`
+                <div key=${a.id} class="abs-item">
+                  <div class="row" style=${{ justifyContent: "space-between", marginBottom: "0.35rem" }}>
+                    <strong>${a.employee?.full_name ?? a.user_id}</strong>
+                    <span class="badge badge-pending">Gaida</span>
+                  </div>
+                  <div style=${{ fontSize: "0.85rem", color: "var(--muted)" }}>
+                    ${a.type?.name} · ${a.start_date} — ${a.end_date}
+                  </div>
+                  ${a.comment ? html`<p style=${{ margin: "0.35rem 0 0", fontSize: "0.88rem" }}>${a.comment}</p>` : null}
+                  <div class="row" style=${{ marginTop: "0.55rem" }}>
+                    <button
+                      type="button"
+                      class="btn btn-small btn-primary"
+                      disabled=${busyId === a.id}
+                      onClick=${() => settle(a.id, "approved")}
+                    >
+                      Apstiprināt
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-small btn-danger"
+                      disabled=${busyId === a.id}
+                      onClick=${() => settle(a.id, "rejected")}
+                    >
+                      Noraidīt
+                    </button>
+                  </div>
+                </div>
+              `
+            )}
+          </div>
+        `;
+      }
+
+      function PrombutnesSection({ userId, role, onBack }) {
+        const [month, setMonth] = useState(() => new Date());
+        const [absences, setAbsences] = useState([]);
+        const [error, setError] = useState(null);
+        const refresh = useCallback(async () => {
+          setError(null);
+          const { data: rows, error: qErr } = await supabase
+            .from("prombutnes_dati")
+            .select("*, type:prombutnes_veidi(*)")
+            .order("start_date", { ascending: true });
+          if (qErr) {
+            setError(qErr.message);
+            return;
+          }
+          const { data: profs, error: pErr } = await supabase.from("profiles").select("id, full_name");
+          if (pErr) setError(pErr.message);
+          const pmap = new Map((profs ?? []).map((p) => [p.id, p]));
+          const list = (rows ?? []).map((r) => ({
+            ...r,
+            type: r.type,
+            employee: pmap.get(r.user_id) ?? null,
+          }));
+          setAbsences(list);
+        }, []);
+        useEffect(() => {
+          void refresh();
+        }, [refresh]);
+        const isManager = role === "manager" || role === "admin";
+        const mine = absences.filter((a) => a.user_id === userId);
+        return html`
+          <section class="stack" style=${{ gap: "1.25rem" }}>
+            <div class="row" style=${{ justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <h2 style=${{ margin: 0, fontSize: "1.15rem" }}>Prombūtnes</h2>
+                <p class="app-sub" style=${{ margin: "0.25rem 0 0" }}>Kalendārs un saskaņošana.</p>
+              </div>
+              <button type="button" class="btn btn-ghost" onClick=${onBack}>← Atpakaļ uz moduļiem</button>
+            </div>
+            ${error
+              ? html`
+                  <div class="banner-warn" role="alert">Kļūda: ${error}</div>
+                `
+              : null}
+            <div class="prombutnes-grid">
+              <${AbsenceCalendar} month=${month} onMonthChange=${setMonth} absences=${absences} />
+              <${AbsenceRequestForm} userId=${userId} onCreated=${() => void refresh()} />
+            </div>
+            ${isManager ? html`<${ManagerApprovals} currentUserId=${userId} onChanged=${() => void refresh()} />` : null}
+            <div class="list-panel">
+              <h2>Mani pieteikumi</h2>
+              ${mine.length === 0
+                ? html`<p style=${{ margin: 0, color: "var(--muted)" }}>Vēl nav iesniegumu.</p>`
+                : mine.map(
+                    (a) => html`
+                      <div key=${a.id} class="abs-item">
+                        <div class="row" style=${{ justifyContent: "space-between" }}>
+                          <span>${a.type?.name}</span>
+                          <span
+                            class=${`badge ${a.status === "pending" ? "badge-pending" : a.status === "approved" ? "badge-approved" : "badge-rejected"}`}
+                          >
+                            ${a.status === "pending"
+                              ? "Gaida"
+                              : a.status === "approved"
+                                ? "Apstiprināts"
+                                : "Noraidīts"}
+                          </span>
+                        </div>
+                        <div style=${{ fontSize: "0.85rem", color: "var(--muted)" }}>
+                          ${a.start_date} — ${a.end_date}
+                        </div>
+                      </div>
+                    `
+                  )}
+            </div>
+          </section>
+        `;
+      }
+
+      function App() {
+        const { session, loading } = useSession();
+        const { profile } = useProfile(session?.user?.id);
+        const [view, setView] = useState("home");
+        const title = useMemo(
+          () => html`
+            <div>
+              <h1 class="app-title">PDD aplikācija</h1>
+              <p class="app-sub">Pakalpojumu dizaina daļa — darba organizācija</p>
+            </div>
+          `,
+          []
+        );
+
+        async function signOut() {
+          await supabase.auth.signOut();
+          setView("home");
+        }
+
+        if (!configured()) {
+          return html`
+            <div class="app-shell">
+              ${title}
+              <div class="banner-warn">
+                Atver šo HTML failu redaktorā un augšā pie
+                <code>SUPABASE_URL</code> un <code>SUPABASE_ANON_KEY</code>
+                ieraksti savu Supabase projektu. SQL:
+                <code>supabase/migrations/20260327220000_initial_pdd.sql</code>
+              </div>
+            </div>
+          `;
+        }
+
+        if (loading) {
+          return html`
+            <div class="app-shell">
+              ${title}
+              <p style=${{ color: "var(--muted)" }}>Ielādē…</p>
+            </div>
+          `;
+        }
+
+        if (!session?.user) {
+          return html`
+            <div class="app-shell">
+              ${title}
+              <${AuthScreen} />
+            </div>
+          `;
+        }
+
+        return html`
+          <div class="app-shell">
+            <header class="app-header">
+              ${title}
+              <div class="row">
+                <span style=${{ color: "var(--muted)", fontSize: "0.9rem" }}>
+                  ${profile?.full_name ?? session.user.email}
+                  ${profile?.role === "manager" || profile?.role === "admin" ? " · vadītājs" : ""}
+                </span>
+                <button type="button" class="btn btn-ghost btn-small" onClick=${signOut}>Iziet</button>
+              </div>
+            </header>
+            ${view === "home"
+              ? html`<${Dashboard} onOpenPrombutnes=${() => setView("prombutnes")} />`
+              : html`
+                  <${PrombutnesSection}
+                    userId=${session.user.id}
+                    role=${profile?.role ?? "employee"}
+                    onBack=${() => setView("home")}
+                  />
+                `}
+          </div>
+        `;
+      }
+
+      createRoot(document.getElementById("root")).render(html`<${App} />`);
+    </script>
   </body>
 </html>
