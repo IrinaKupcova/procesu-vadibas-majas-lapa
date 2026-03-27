@@ -7,7 +7,7 @@
     <title>PDD aplikācija</title>
     <!--
       BEZ SERVERA: atver šo failu pārlūkā (file:///…) vai kopē uz jebkuru tīmekļa vietu.
-      1) Scriptā pēc <code>import</code> rindām ieraksti SUPABASE_URL un SUPABASE_ANON_KEY.
+      1) Atver lapu — aizpildi Supabase formu, vai scriptā ieraksti FILE_SUPABASE_URL / FILE_SUPABASE_ANON_KEY.
       2) Palaižot no file:// dažās vecākās sistēmās bloķē trešo pušu moduļus — tad lieto
          to pašu failu caur https (piem. GitHub Pages) vai pārlūka iestatījumos atļauj file piekļuvi.
     -->
@@ -218,19 +218,92 @@
       } from "https://esm.sh/date-fns@4.1.0";
       import { lv } from "https://esm.sh/date-fns@4.1.0/locale/lv";
 
-      // ========= Konfigurācija (aizpildi savu Supabase) =========
-      const SUPABASE_URL = "https://YOUR_PROJECT.supabase.co";
-      const SUPABASE_ANON_KEY = "YOUR_ANON_KEY";
+      // Failā var ierakstīt īstos datus; ja paliek YOUR_* — lasa no localStorage (formā zemāk).
+      const FILE_SUPABASE_URL = "https://YOUR_PROJECT.supabase.co";
+      const FILE_SUPABASE_ANON_KEY = "YOUR_ANON_KEY";
+
+      const LS_URL = "pdd_supabase_url";
+      const LS_KEY = "pdd_supabase_anon_key";
+
+      function loadConfig() {
+        const url = FILE_SUPABASE_URL.includes("YOUR_PROJECT")
+          ? localStorage.getItem(LS_URL) || FILE_SUPABASE_URL
+          : FILE_SUPABASE_URL;
+        const key = FILE_SUPABASE_ANON_KEY.includes("YOUR_ANON")
+          ? localStorage.getItem(LS_KEY) || FILE_SUPABASE_ANON_KEY
+          : FILE_SUPABASE_ANON_KEY;
+        return { url, key };
+      }
 
       const html = htm.bind(React.createElement);
-      const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      const __cfg = loadConfig();
+      const supabase = createClient(__cfg.url, __cfg.key);
 
       function configured() {
+        const { url, key } = loadConfig();
         return (
-          Boolean(SUPABASE_URL && SUPABASE_ANON_KEY) &&
-          !String(SUPABASE_URL).includes("YOUR_PROJECT") &&
-          !String(SUPABASE_ANON_KEY).includes("YOUR_ANON")
+          Boolean(url && key) &&
+          !String(url).includes("YOUR_PROJECT") &&
+          !String(key).includes("YOUR_ANON")
         );
+      }
+
+      function ConfigScreen() {
+        const [url, setUrl] = useState(() => localStorage.getItem(LS_URL) || "");
+        const [key, setKey] = useState(() => localStorage.getItem(LS_KEY) || "");
+        function save(e) {
+          e.preventDefault();
+          localStorage.setItem(LS_URL, url.trim());
+          localStorage.setItem(LS_KEY, key.trim());
+          location.reload();
+        }
+        function clearStored() {
+          localStorage.removeItem(LS_URL);
+          localStorage.removeItem(LS_KEY);
+          location.reload();
+        }
+        return html`
+          <div class="auth-box" style=${{ maxWidth: "460px" }}>
+            <h1>Supabase pieslēgums</h1>
+            <p class="app-sub">
+              Supabase → <strong>Project Settings → API</strong>: kopē <strong>Project URL</strong> un
+              <strong>anon public</strong> atslēgu, ielīmē zemāk, saglabā.
+            </p>
+            <form class="stack" onSubmit=${save}>
+              <div class="field">
+                <label for="cfg-url">Project URL</label>
+                <input
+                  id="cfg-url"
+                  class="input"
+                  value=${url}
+                  onChange=${(ev) => setUrl(ev.target.value)}
+                  placeholder="https://xxxxxxxx.supabase.co"
+                  required
+                />
+              </div>
+              <div class="field">
+                <label for="cfg-key">anon public</label>
+                <input
+                  id="cfg-key"
+                  class="input"
+                  type="password"
+                  value=${key}
+                  onChange=${(ev) => setKey(ev.target.value)}
+                  placeholder="eyJhbGciOiJIUzI1NiIs..."
+                  required
+                />
+              </div>
+              <button type="submit" class="btn btn-primary">Saglabāt un pārlādēt</button>
+            </form>
+            <p style=${{ fontSize: "0.85rem", color: "var(--muted)", marginTop: "1rem" }}>
+              Datubāze: SQL Editor → palaid
+              <code>supabase/migrations/20260327220000_initial_pdd.sql</code>
+            </p>
+            <button type="button" class="btn btn-ghost btn-small" style=${{ marginTop: "0.5rem" }} onClick=${clearStored}>
+              Notīrīt saglabāto šajā pārlūkā
+            </button>
+          </div>
+        `;
       }
 
       function useSession() {
@@ -774,12 +847,7 @@
           return html`
             <div class="app-shell">
               ${title}
-              <div class="banner-warn">
-                Atver šo HTML failu redaktorā un augšā pie
-                <code>SUPABASE_URL</code> un <code>SUPABASE_ANON_KEY</code>
-                ieraksti savu Supabase projektu. SQL:
-                <code>supabase/migrations/20260327220000_initial_pdd.sql</code>
-              </div>
+              <${ConfigScreen} />
             </div>
           `;
         }

@@ -4,9 +4,7 @@
 
 ## Konfigurācija
 
-1. Atver **`index.html`**, atrod `<script type="module">` un aizpildi:
-   - `SUPABASE_URL` — Supabase **Project URL**
-   - `SUPABASE_ANON_KEY` — **anon public** atslēga (*Settings → API*)
+1. Atver **`index.html`** pārlūkā — parādīsies forma **Supabase pieslēgums**: ielīmē **Project URL** un **anon public** (*Supabase → Project Settings → API*), saglabā (glabājas šajā pārlūkā). Vai ieraksti tos pašus datus tieši `index.html` kā `FILE_SUPABASE_*` (tad forma nav vajadzīga).
 2. Supabase **SQL Editor**: palaid `supabase/migrations/20260327220000_initial_pdd.sql`
 3. **Authentication → URL configuration**: **Site URL** un **Redirect URLs** — tava lappuse (piem. `https://irinakupcova.github.io/PDD_aplikacija/`) un `http://localhost/**` ja vajag.
 
