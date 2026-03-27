@@ -435,6 +435,20 @@
         return { profile, loading };
       }
 
+      function formatSupabaseAuthError(raw) {
+        const m = raw ? String(raw) : "";
+        if (!m) return m;
+        if (/invalid api key|invalid jwt|jwt (is )?invalid|malformed|apikey|401/i.test(m)) {
+          return (
+            m +
+            " — Pārbaudi Supabase → Project Settings → API: 1) Project URL kā https://xxxx.supabase.co, 2) zem Project API keys kopē " +
+            "tieši anon public atslēgu (garš teksts, sākas ar eyJ…), ne service_role slepeno atslēgu, " +
+            "3) URL un atslēga no viena projekta, bez liekām atstarpēm. Ja testē no file://, pamēģini to pašu lapu caur HTTPS (GitHub Pages)."
+          );
+        }
+        return m;
+      }
+
       function AuthScreen() {
         const [mode, setMode] = useState("signin");
         const [email, setEmail] = useState("");
@@ -457,14 +471,14 @@
                 password,
                 options: { data: { full_name: fullName || email.split("@")[0] } },
               });
-              if (error) setMessage(error.message);
+              if (error) setMessage(formatSupabaseAuthError(error.message));
               else
                 setMessage(
                   "Konts izveidots. Ja ir ieslēgta e-pasta apstiprināšana, pārbaudi pastkasti."
                 );
             } else {
               const { error } = await supabase.auth.signInWithPassword({ email, password });
-              if (error) setMessage(error.message);
+              if (error) setMessage(formatSupabaseAuthError(error.message));
             }
           } finally {
             setBusy(false);
@@ -537,7 +551,21 @@
                 ${busy ? "…" : mode === "signup" ? "Izveidot kontu" : "Ieiet"}
               </button>
             </form>
-            ${message ? html`<p style=${{ marginTop: "1rem", color: "var(--muted)" }}>${message}</p>` : null}
+            ${message
+              ? html`<p style=${{ marginTop: "1rem", color: "var(--muted)", whiteSpace: "pre-wrap" }}>${message}</p>`
+              : null}
+            <p
+              style=${{
+                marginTop: "1rem",
+                fontSize: "0.78rem",
+                color: "var(--muted)",
+                borderTop: "1px solid var(--border)",
+                paddingTop: "0.75rem",
+              }}
+            >
+              Atslēgas vieta: Supabase Studio → tavs projekts →
+              <strong> Project Settings → API</strong>.
+            </p>
           </div>
         `;
       }
