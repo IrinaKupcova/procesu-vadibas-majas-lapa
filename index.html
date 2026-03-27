@@ -524,10 +524,14 @@
                   class="input"
                   required
                   minLength=${6}
+                  title="Parolei jābūt vismaz 6 rakstzīmēm garai (īsākas Supabase nepieņem)."
                   value=${password}
                   onChange=${(ev) => setPassword(ev.target.value)}
                   autoComplete=${mode === "signup" ? "new-password" : "current-password"}
                 />
+                <span style=${{ fontSize: "0.78rem", color: "var(--muted)" }}>
+                  Vismaz 6 rakstzīmes — īsāku nevar (pārlūka un Supabase prasība).
+                </span>
               </div>
               <button type="submit" class="btn btn-primary" disabled=${busy}>
                 ${busy ? "…" : mode === "signup" ? "Izveidot kontu" : "Ieiet"}
