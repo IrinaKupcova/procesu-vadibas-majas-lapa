@@ -2,31 +2,29 @@
 
 Pakalpojumu dizaina daļas darba organizācija: **React (Vite)**, **Supabase** (auth + dati), izvietošana **GitHub Pages**.
 
-## Kas jau salikts projektā
+## Repozitorijs
 
-- Viss avota kods, SQL migrācija un **GitHub Actions** darbplūsma `Deploy GitHub Pages`.
-- Lokāli ir **git commit** uz zara `main`. Automātiski nevarēja: **GitHub push** (repozitorijs nepastāv vai nav piekļuves) un **Supabase projekts** (vajadzīgs tavs konts).
+- **GitHub:** [IrinaKupcova/PDD_aplikacija](https://github.com/IrinaKupcova/PDD_aplikacija) · [iestatījumi](https://github.com/IrinaKupcova/PDD_aplikacija/settings)
+- **Klonēt (SSH):** `git clone git@github.com:IrinaKupcova/PDD_aplikacija.git`
+- **Klonēt (HTTPS):** `git clone https://github.com/IrinaKupcova/PDD_aplikacija.git`
 
-### Tūlīt tevis (dažas minūtes)
+Lokāli `origin` bieži ir: `git@github.com:IrinaKupcova/PDD_aplikacija.git` — tad `git push -u origin main`.
 
-1. **GitHub:** izveido tukšu repozitoriju `PDD_aplikacija` (vai kā sauc remote), tad projekta mapē:
-   ```bash
-   git remote set-url origin https://github.com/TAVS_LIETOTAJVARDS/PDD_aplikacija.git
-   git push -u origin main
-   ```
-2. **GitHub:** **Settings → Secrets → Actions** — pievieno `VITE_SUPABASE_URL` un `VITE_SUPABASE_ANON_KEY`.
-3. **GitHub:** **Settings → Pages** — **Source: GitHub Actions**.
-4. **Supabase:** palaid SQL no `supabase/migrations/…` un iestatījumi zemāk.
+### Pēc klona — GitHub + Supabase
 
-Pēc tam automātiski notiks lappuses salikšana katrā `git push` uz `main`.
+1. **GitHub → Settings → Secrets → Actions:** `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`.
+2. **GitHub → Settings → Pages:** avots **GitHub Actions**.
+3. **Supabase:** SQL no `supabase/migrations/…` un **Auth URL** kā zemāk.
+
+Pēc `git push` uz `main` darbplūsma **Deploy GitHub Pages** saliek lapu.
 
 ## Supabase
 
 1. Izveido projektu [supabase.com](https://supabase.com) → **Project URL** un **anon public** atslēga (**Settings → API**).
 2. **SQL Editor** → ielīmē un palaid `supabase/migrations/20260327220000_initial_pdd.sql`.
 3. **Authentication → URL configuration** (svarīgi GitHub Pages):
-   - **Site URL**: `https://TAVS_LIETOTAJVARDS.github.io/PDD_aplikacija/` (ievēro bīdīšanas zīmes beigās, ja tā ir tava publiskā lapa).
-   - **Redirect URLs**: pievieno to pašu URL un `http://localhost:5173/**` izstrādei.
+   - **Site URL**: `https://irinakupcova.github.io/PDD_aplikacija/` (GitHub lietotājvārds **arakstā**, beigās `/` parasti OK.)
+   - **Redirect URLs**: tā pati adrese un `http://localhost:5173/**` izstrādei.
 4. Pēc pirmā testa lietotāja — SQL (aizstāj UUID):  
    `update public.profiles set role = 'manager' where id = '…';`
 
@@ -37,8 +35,8 @@ Pēc tam automātiski notiks lappuses salikšana katrā `git push` uz `main`.
    - `VITE_SUPABASE_URL`
    - `VITE_SUPABASE_ANON_KEY`
 3. **Settings → Pages** → **Build and deployment** → avots: **GitHub Actions** (nevis „Deploy from branch”).
-4. Push uz `main` (vai `master`) — darbplūsma **Deploy GitHub Pages** saliek lapu. Pēc minūtes būs adrese:  
-   `https://TAVS_LIETOTAJVARDS.github.io/PDD_aplikacija/`
+4. Push uz `main` — pēc minūtes publiskā adrese (ja ieslēgts GitHub Pages no Actions):  
+   `https://irinakupcova.github.io/PDD_aplikacija/`
 
 ## Lokāli
 
