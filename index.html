@@ -1,1 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Prombūtnes pieteikums</title>
+</head>
+<body>
+  <h1>Pieteikt prombūtni</h1>
 
+  <form id="form">
+    <label>Sākuma datums: <input type="date" id="start" required></label><br><br>
+    <label>Beigu datums: <input type="date" id="end" required></label><br><br>
+    <button type="submit">Saglabāt</button>
+  </form>
+
+  <script type="module">
+    import { createClient } from 'https://esm.sh/@supabase/supabase-js'
+
+    const supabase = createClient(
+      'https://YOUR_PROJECT.supabase.co',
+      'YOUR_ANON_KEY'
+    );
+
+    document.getElementById("form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const start = document.getElementById("start").value;
+      const end = document.getElementById("end").value;
+
+      const { data, error } = await supabase
+        .from("prombutnes_dati")
+        .insert({ start_date: start, end_date: end });
+
+      if (error) alert(error.message);
+      else alert("Saglabāts!");
+    });
+  </script>
+</body>
+</html>
