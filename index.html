@@ -14,12 +14,12 @@
     <style>
       :root {
         color-scheme: light dark;
-        --bg: #8beed0;
-        --surface:  #0a9750;
+        --bg: #a4eed8;
+        --surface:  #0a9297;
         --surface2: #32dd5d;
         --border: #0e5029;
-        --text: #e8eef6;
-        --muted: #94a3b8;
+        --text: #01171d;
+        --muted: #020c1b;
         --accent: #5ae694;
         --accent-dim: #17c07f;
         --radius: 12px;
@@ -79,8 +79,8 @@
       }
       .btn:disabled { opacity: 0.5; cursor: not-allowed; }
       .btn-primary {
-        background: linear-gradient(180deg, #0ea5e9, #0284c7);
-        border-color: #0369a1;
+        background: linear-gradient(180deg, #01102c, #01102c);
+        border-color: #01102c;
         color: #fff;
       }
       .btn-ghost { background: transparent; }
@@ -591,7 +591,7 @@
             <div class="card-grid">
               <button type="button" class="card" onClick=${onOpenPrombutnes}>
                 <h3>Prombūtnes</h3>
-                <p>Calendārs, pieteikumi un vadītāja akcepts.</p>
+                <p>Kalendārs, prombūtnes pieteikumi un vadītāja akcepts.</p>
               </button>
               <div class="card" style=${{ opacity: 0.65, cursor: "default" }}>
                 <h3>Modulis2</h3>
@@ -734,7 +734,7 @@
         }
         return html`
           <div class="list-panel">
-            <h2>Pieteikt prombūtni</h2>
+            <h2>Piefiksēt/ saskaņot/ atcelt prombūtni</h2>
             <form class="stack" onSubmit=${handleSubmit}>
               <div class="field">
                 <label for="ptype">Veids</label>
