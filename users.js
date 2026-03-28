@@ -1,6 +1,5 @@
 /**
- * Lietotāju saraksts prombūtnes formai.
- * Supabase tabula: public.users (id, full_name, role, …).
+ * Komandas lietotāji (Supabase public.users).
  */
 export async function fetchAbsenceFormUsers(supabaseClient, options) {
   const { localMode, localUser } = options;
@@ -9,7 +8,7 @@ export async function fetchAbsenceFormUsers(supabaseClient, options) {
 
   const r = await supabaseClient
     .from("users")
-    .select("id, full_name")
+    .select("id, full_name, email")
     .order("full_name", { ascending: true });
   if (r.error) {
     console.error(r.error);

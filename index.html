@@ -107,6 +107,15 @@
         font-size: 0.9rem;
         margin-bottom: 1rem;
       }
+      .banner-deputy {
+        padding: 0.65rem 0.9rem;
+        border-radius: 8px;
+        background: #450a0a;
+        border: 1px solid #991b1b;
+        color: #fecaca;
+        font-size: 0.9rem;
+        margin-bottom: 1rem;
+      }
       .cal-wrap {
         background: var(--surface);
         border: 1px solid var(--border);
@@ -226,15 +235,14 @@
       const LS_ABS = "pdd_local_absences";
       const LS_TYPES = "pdd_local_types";
       const LS_LOCAL_CITS = "pdd_local_cits_requests";
-      const LS_MANAGER_EMAIL = "pdd_manager_notify_email";
-      const LS_ACTING_NAME = "pdd_acting_manager_name";
-      const LS_ACTING_EMAIL = "pdd_acting_manager_email";
+      const LS_LOCAL_DEPUTY_USER_ID = "pdd_local_deputy_user_id";
       const DEFAULT_MANAGER_EMAIL = "katrina.jirgensone@vid.gov.lv";
 
       /** true: tūlīt moduļu skats. false: tiešsaistes konts (URL+atslēga failā) vai lokālā parole. */
       const TIKAI_VIENKARSI_SKATS = false;
 
-      // Publisko atslēgu kopē: Supabase Dashboard → Project Settings → API → anon public (ne service_role).
+      // Publisko atslēgu kopē: Supabase → Project Settings → API → anon public (ne service_role).
+      // Ja atslēga „pazuda” pēc rediģēšanas — ielīmē to atkal šeit (viena rinda, sākas ar eyJ…).
       const FILE_SUPABASE_URL = "https://fdnkvecgqetmwilwolgt.supabase.co";
       const FILE_SUPABASE_ANON_KEY = "YOUR_ANON_KEY";
 
@@ -317,7 +325,7 @@
         if (!supabaseClient) return [];
         const r = await supabaseClient
           .from("users")
-          .select("id, full_name")
+          .select("id, full_name, email")
           .order("full_name", { ascending: true });
         if (r.error) {
           console.error(r.error);
@@ -334,12 +342,24 @@
         localStorage.setItem(LS_LOCAL_CITS, JSON.stringify(rows));
       }
 
-      function effectiveManagerEmail() {
-        const acting = localStorage.getItem(LS_ACTING_EMAIL);
-        if (acting && acting.includes("@")) return acting.trim();
-        const saved = localStorage.getItem(LS_MANAGER_EMAIL);
-        if (saved && saved.includes("@")) return saved.trim();
+      function resolveNotifyEmail(teamUsers, deputyUserId) {
+        if (deputyUserId && teamUsers?.length) {
+          const d = teamUsers.find((u) => String(u.id) === String(deputyUserId));
+          if (d?.email && String(d.email).includes("@")) return String(d.email).trim();
+        }
         return DEFAULT_MANAGER_EMAIL;
+      }
+
+      /** Gaidošo akceptu / Cits apstiprinājums: vadītājs, admin vai aktuālais p.i. */
+      function userCanApproveAbsences(profileRole, sessionUserId, deputyUserId) {
+        if (profileRole === "manager" || profileRole === "admin") return true;
+        if (
+          deputyUserId &&
+          sessionUserId &&
+          String(deputyUserId) === String(sessionUserId)
+        )
+          return true;
+        return false;
       }
 
       function isLocalMode() {
@@ -796,11 +816,15 @@
               const self = list.find((u) => String(u.id) === String(userId));
               setUsers(self ? [self] : [{ id: userId, full_name: localDisplayName() }]);
             }
-            const pick =
-              list.find((u) => String(u.id) === String(userId))?.id ?? list[0]?.id ?? "";
+            const uid = String(userId);
+            const defaultId =
+              list.find((u) => String(u.id) === uid)?.id ?? list[0]?.id ?? "";
             setSelectedUserId((prev) => {
-              if (isManager && prev && list.some((u) => String(u.id) === String(prev))) return prev;
-              return pick;
+              if (isManager) {
+                if (prev && list.some((u) => String(u.id) === String(prev))) return prev;
+                return defaultId;
+              }
+              return defaultId;
             });
           })();
           return () => {
@@ -939,88 +963,133 @@
         `;
       }
 
-      function CitsManagerSettings() {
-        const [defEmail, setDefEmail] = useState(() => localStorage.getItem(LS_MANAGER_EMAIL) || "");
-        const [actingName, setActingName] = useState(() => localStorage.getItem(LS_ACTING_NAME) || "");
-        const [actingEmail, setActingEmail] = useState(() => localStorage.getItem(LS_ACTING_EMAIL) || "");
-        const [open, setOpen] = useState(false);
-        function save(e) {
-          e.preventDefault();
-          if (defEmail.trim()) localStorage.setItem(LS_MANAGER_EMAIL, defEmail.trim());
-          else localStorage.removeItem(LS_MANAGER_EMAIL);
-          if (actingName.trim()) localStorage.setItem(LS_ACTING_NAME, actingName.trim());
-          else localStorage.removeItem(LS_ACTING_NAME);
-          if (actingEmail.trim()) localStorage.setItem(LS_ACTING_EMAIL, actingEmail.trim());
-          else localStorage.removeItem(LS_ACTING_EMAIL);
-          alert("Saglabāts šajā pārlūkā.");
+      function TeamUsersList({ users }) {
+        if (!users?.length) {
+          return html`
+            <div class="list-panel">
+              <h2>Komandas lietotāji</h2>
+              <p style=${{ margin: 0, color: "var(--muted)", fontSize: "0.88rem" }}>Nav datu.</p>
+            </div>
+          `;
         }
         return html`
-          <div class="list-panel" style=${{ marginTop: "0.85rem" }}>
-            <button
-              type="button"
-              class="btn btn-ghost btn-small"
-              style=${{ marginBottom: open ? "0.65rem" : 0 }}
-              onClick=${() => setOpen(!open)}
-            >
-              ${open ? "▼" : "▶"} Vadītāja e-pasts un aizvietotājs
-            </button>
-            ${open
-              ? html`
-                  <p style=${{ margin: "0 0 0.65rem", fontSize: "0.82rem", color: "var(--muted)" }}>
-                    Noklusējums: <code>${DEFAULT_MANAGER_EMAIL}</code>. Ja norādi aizvietotāja e-pastu,
-                    paziņojumi par „Cits (saskaņots)” sūtīti uz aizvietotāju.
-                  </p>
-                  <form class="stack" onSubmit=${save}>
-                    <div class="field">
-                      <label for="mgr-def">Pastāvīgā vadītāja e-pasts (pēc izvēles)</label>
-                      <input
-                        id="mgr-def"
-                        type="email"
-                        class="input"
-                        value=${defEmail}
-                        onChange=${(ev) => setDefEmail(ev.target.value)}
-                        placeholder=${DEFAULT_MANAGER_EMAIL}
-                      />
-                    </div>
-                    <div class="field">
-                      <label for="act-n">Vadītāja pienākumu izpildītājs — vārds, uzvārds</label>
-                      <input
-                        id="act-n"
-                        class="input"
-                        value=${actingName}
-                        onChange=${(ev) => setActingName(ev.target.value)}
-                        placeholder="Piemēram, Jānis Bērziņš"
-                      />
-                    </div>
-                    <div class="field">
-                      <label for="act-e">Vadītāja pienākumu izpildītājs — e-pasts</label>
-                      <input
-                        id="act-e"
-                        type="email"
-                        class="input"
-                        value=${actingEmail}
-                        onChange=${(ev) => setActingEmail(ev.target.value)}
-                        placeholder="ja tukšs — tiek lietots noklusējuma vadītājs"
-                      />
-                    </div>
-                    <button type="submit" class="btn btn-primary btn-small">Saglabāt</button>
-                  </form>
+          <div class="list-panel">
+            <h2>Komandas lietotāji</h2>
+            <ul style=${{ margin: 0, paddingLeft: "1.2rem", fontSize: "0.88rem" }}>
+              ${users.map(
+                (u) => html`
+                  <li key=${u.id} style=${{ marginBottom: "0.35rem" }}>
+                    <strong>${u.full_name ?? u.id}</strong>
+                    ${u.email
+                      ? html`<span style=${{ color: "var(--muted)", marginLeft: "0.35rem" }}>${u.email}</span>`
+                      : html`<span style=${{ color: "var(--muted)", marginLeft: "0.35rem", fontStyle: "italic" }}
+                        >(e-pasts vēl nav tabulā)</span
+                      >`}
+                  </li>
                 `
-              : null}
+              )}
+            </ul>
           </div>
         `;
       }
 
-      function CitsSaskanotsForm({ userId, onCreated }) {
+      function DeputyDelegePanel({ teamUsers, deputyUserId, onDeputyChange, currentUserId }) {
+        const [sel, setSel] = useState(deputyUserId ? String(deputyUserId) : "");
+        const [busy, setBusy] = useState(false);
+        const [msg, setMsg] = useState(null);
+        useEffect(() => {
+          setSel(deputyUserId ? String(deputyUserId) : "");
+        }, [deputyUserId]);
+        async function persist(nextId) {
+          setBusy(true);
+          setMsg(null);
+          try {
+            if (isLocalMode()) {
+              if (nextId) localStorage.setItem(LS_LOCAL_DEPUTY_USER_ID, nextId);
+              else localStorage.removeItem(LS_LOCAL_DEPUTY_USER_ID);
+              await onDeputyChange();
+              setMsg(nextId ? "P.i. saglabāts (vietējais režīms)." : "P.i. atcelts (vietējais režīms).");
+              return;
+            }
+            const { error } = await supabase
+              .from("pdd_deputy_state")
+              .update({
+                deputy_user_id: nextId,
+                updated_by: currentUserId,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", 1);
+            if (error) {
+              setMsg(error.message);
+              return;
+            }
+            await onDeputyChange();
+            setMsg(
+              nextId
+                ? "P.i. saglabāts — „Cits (saskaņots)” un apstiprinājumi iet uz izvēlētā e-pastu."
+                : "P.i. atcelts — funkcijas atgrieztas pamatvadītājam."
+            );
+          } finally {
+            setBusy(false);
+          }
+        }
+        async function saveForm(e) {
+          e.preventDefault();
+          await persist(sel || null);
+        }
+        async function cancelDeputy() {
+          setSel("");
+          await persist(null);
+        }
+        return html`
+          <div class="list-panel" style=${{ marginTop: "0.85rem" }}>
+            <h3 style=${{ margin: "0 0 0.5rem", fontSize: "0.95rem" }}>Vadītāja pienākumu izpildītājs (p.i.)</h3>
+            <p style=${{ margin: "0 0 0.65rem", fontSize: "0.8rem", color: "var(--muted)" }}>
+              Izvēlies personu no saraksta. Apstiprināšanu drīkst vadītājs vai saglabātais p.i.
+            </p>
+            <form class="stack" onSubmit=${saveForm}>
+              <div class="field">
+                <label for="deputy-sel">Persona</label>
+                <select
+                  id="deputy-sel"
+                  class="select"
+                  value=${sel}
+                  onChange=${(ev) => setSel(ev.target.value)}
+                >
+                  <option value="">Nav p.i. — ${DEFAULT_MANAGER_EMAIL}</option>
+                  ${teamUsers.map(
+                    (u) => html`
+                      <option key=${u.id} value=${u.id}>
+                        ${u.full_name ?? u.id}${u.email ? ` — ${u.email}` : ""}
+                      </option>
+                    `
+                  )}
+                </select>
+              </div>
+              <div class="row">
+                <button type="submit" class="btn btn-primary btn-small" disabled=${busy}>
+                  ${busy ? "…" : "Saglabāt p.i."}
+                </button>
+                <button type="button" class="btn btn-danger btn-small" disabled=${busy} onClick=${cancelDeputy}>
+                  Atcelt p.i.
+                </button>
+              </div>
+            </form>
+            ${msg ? html`<p style=${{ margin: "0.35rem 0 0", fontSize: "0.82rem", color: "var(--muted)" }}>${msg}</p>` : null}
+          </div>
+        `;
+      }
+
+      function CitsSaskanotsForm({ userId, onCreated, notifyEmail }) {
         const [startDate, setStartDate] = useState("");
         const [endDate, setEndDate] = useState("");
         const [comment, setComment] = useState("");
         const [busy, setBusy] = useState(false);
         async function submit(e) {
           e.preventDefault();
-          const to = effectiveManagerEmail();
-          if (!to) {
-            alert("Nav norādīts vadītāja e-pasts.");
+          const to = notifyEmail;
+          if (!to || !String(to).includes("@")) {
+            alert("Nav derīga e-pasta adrese apstiprinātājam (pārbaudi p.i. vai public.users e-pastu).");
             return;
           }
           setBusy(true);
@@ -1092,8 +1161,7 @@
           <div class="list-panel" style=${{ marginTop: "0.85rem" }}>
             <h2>Cits (saskaņots) — īpašais ceļš</h2>
             <p style=${{ margin: "0 0 0.75rem", fontSize: "0.82rem", color: "var(--muted)" }}>
-              Izvēlies periodu; pieprasījums un saite uz apstiprināšanu tiek nosūtīta uz vadītāja e-pastu
-              (<strong>${effectiveManagerEmail()}</strong>).
+              Pieprasījums un saite uz apstiprināšanu tiek sūtīta uz <strong>${notifyEmail}</strong>.
             </p>
             <form class="stack" onSubmit=${submit}>
               <div class="row" style=${{ gap: "0.75rem" }}>
@@ -1134,19 +1202,52 @@
                 ${busy ? "Sūta…" : "Sūtīt vadītājam"}
               </button>
             </form>
-            <${CitsManagerSettings} />
           </div>
         `;
       }
 
-      function CitsPublicApprove({ token, onDone }) {
+      function CitsPublicApprove({ token, onDone, sessionUserId, profileRole }) {
         const [preview, setPreview] = useState(null);
         const [err, setErr] = useState(null);
         const [busy, setBusy] = useState(false);
+        const [deputyUserId, setDeputyUserId] = useState(null);
+        const [deputyLoaded, setDeputyLoaded] = useState(false);
+        useEffect(() => {
+          if (isLocalMode() || !supabase || !sessionUserId) {
+            setDeputyUserId(null);
+            setDeputyLoaded(true);
+            return;
+          }
+          let cancelled = false;
+          setDeputyLoaded(false);
+          supabase
+            .from("pdd_deputy_state")
+            .select("deputy_user_id")
+            .eq("id", 1)
+            .maybeSingle()
+            .then(({ data, error }) => {
+              if (cancelled) return;
+              if (error) console.error(error);
+              setDeputyUserId(data?.deputy_user_id ?? null);
+              setDeputyLoaded(true);
+            });
+          return () => {
+            cancelled = true;
+          };
+        }, [sessionUserId]);
+        const canApprove = isLocalMode()
+          ? TIKAI_VIENKARSI_SKATS || localSessionActive()
+          : Boolean(
+              sessionUserId &&
+                deputyLoaded &&
+                userCanApproveAbsences(profileRole ?? "employee", sessionUserId, deputyUserId)
+            );
         useEffect(() => {
           let cancelled = false;
           (async () => {
             if (!token) return;
+            setErr(null);
+            setPreview(null);
             if (isLocalMode()) {
               const rows = getLocalCitsRequests();
               const r = rows.find((x) => x.approval_token === token && x.status === "pending_manager");
@@ -1164,6 +1265,14 @@
                 });
               return;
             }
+            if (!sessionUserId || !deputyLoaded) return;
+            if (!userCanApproveAbsences(profileRole ?? "employee", sessionUserId, deputyUserId)) {
+              if (!cancelled)
+                setErr(
+                  "Apstiprināt drīkst tikai vadītājs, administrators vai aktuālais p.i. Ielogojies ar atbilstošu kontu."
+                );
+              return;
+            }
             const { data, error } = await supabase.rpc("pdd_cits_preview", { p_token: token });
             if (cancelled) return;
             if (error) {
@@ -1177,8 +1286,12 @@
           return () => {
             cancelled = true;
           };
-        }, [token]);
+        }, [token, sessionUserId, deputyLoaded, deputyUserId, profileRole]);
         async function approve() {
+          if (!canApprove) {
+            alert("Apstiprināt drīkst tikai vadītājs, administrators vai aktuālais p.i.");
+            return;
+          }
           setBusy(true);
           try {
             if (isLocalMode()) {
@@ -1233,7 +1346,7 @@
             ${err
               ? html`<p style=${{ color: "#f87171" }}>${err}</p>`
               : !preview
-                ? html`<p style=${{ color: "var(--muted)" }}>Ielādē…</p>`
+                ? html`<p style=${{ color: "var(--muted)" }}>${isLocalMode() || canApprove ? "Ielādē…" : "Pārbauda tiesības…"}</p>`
                 : html`
                     <div class="stack" style=${{ gap: "0.5rem" }}>
                       <p><strong>${preview.employee_name}</strong></p>
@@ -1243,9 +1356,14 @@
                       ${preview.comment
                         ? html`<p style=${{ margin: 0 }}>${preview.comment}</p>`
                         : null}
-                      <button type="button" class="btn btn-primary" disabled=${busy} onClick=${approve}>
+                      <button type="button" class="btn btn-primary" disabled=${busy || !canApprove} onClick=${approve}>
                         ${busy ? "…" : "Apstiprināt prombūtni"}
                       </button>
+                      ${!canApprove && !isLocalMode()
+                        ? html`<p style=${{ margin: 0, fontSize: "0.82rem", color: "var(--muted)" }}>
+                            Tikai vadītājs, administrators vai p.i. var apstiprināt.
+                          </p>`
+                        : null}
                     </div>
                   `}
             <button type="button" class="btn btn-ghost btn-small" style=${{ marginTop: "1rem" }} onClick=${onDone}>
@@ -1255,12 +1373,11 @@
         `;
       }
 
-      function AbsenceRecordsPanel({ userId, role, absences, types, onRefresh }) {
-        const isManager = role === "manager" || role === "admin";
+      function AbsenceRecordsPanel({ userId, absences, types, onRefresh, approverView }) {
         const [editing, setEditing] = useState(null);
         const [delId, setDelId] = useState(null);
         const [form, setForm] = useState({ type_id: "", start_date: "", end_date: "", comment: "" });
-        const list = isManager ? absences : absences.filter((a) => a.user_id === userId);
+        const list = approverView ? absences : absences.filter((a) => a.user_id === userId);
         function openEdit(a) {
           setEditing(a.id);
           setForm({
@@ -1321,16 +1438,15 @@
           }
         }
         const typeOptionsEmployee = types.filter((t) => !isCitsSaskanotsTypeName(t.name));
-        const typeOptionsEdit = isManager ? types : typeOptionsEmployee;
+        const typeOptionsEdit = approverView ? types : typeOptionsEmployee;
         return html`
           <div class="list-panel">
-            <h2>${isManager ? "Visi prombūtnes ieraksti (vadītājs)" : "Mani ieraksti — labot / dzēst"}</h2>
             ${list.length === 0
               ? html`<p style=${{ margin: 0, color: "var(--muted)" }}>Nav ierakstu.</p>`
               : list.map((a) => {
                   const own = String(a.user_id) === String(userId);
-                  const canEdit = isManager || (own && a.status === "pending");
-                  const canDelete = isManager || own;
+                  const canEdit = approverView || (own && a.status === "pending");
+                  const canDelete = approverView || own;
                   return html`
                     <div key=${a.id} class="abs-item">
                       <div class="row" style=${{ justifyContent: "space-between" }}>
@@ -1596,6 +1712,8 @@
         const [month, setMonth] = useState(() => new Date());
         const [absences, setAbsences] = useState([]);
         const [typesList, setTypesList] = useState([]);
+        const [teamUsers, setTeamUsers] = useState([]);
+        const [deputyUserId, setDeputyUserId] = useState(null);
         const [error, setError] = useState(null);
         useEffect(() => {
           if (isLocalMode()) {
@@ -1611,6 +1729,43 @@
               setTypesList(data ?? []);
             });
         }, []);
+        const loadTeamAndDeputy = useCallback(async () => {
+          if (isLocalMode()) {
+            setTeamUsers([
+              {
+                id: LOCAL_USER_ID,
+                full_name: localDisplayName(),
+                email: "demo@local",
+              },
+            ]);
+            setDeputyUserId(localStorage.getItem(LS_LOCAL_DEPUTY_USER_ID) || null);
+            return;
+          }
+          const { data: urows, error: uErr } = await supabase
+            .from("users")
+            .select("id, full_name, email")
+            .order("full_name", { ascending: true });
+          if (uErr) console.error(uErr);
+          setTeamUsers(urows ?? []);
+          const { data: drow, error: dErr } = await supabase
+            .from("pdd_deputy_state")
+            .select("deputy_user_id")
+            .eq("id", 1)
+            .maybeSingle();
+          if (dErr) console.error(dErr);
+          setDeputyUserId(drow?.deputy_user_id ?? null);
+        }, []);
+        useEffect(() => {
+          void loadTeamAndDeputy();
+        }, [loadTeamAndDeputy]);
+        const notifyEmail = useMemo(
+          () => resolveNotifyEmail(teamUsers, deputyUserId),
+          [teamUsers, deputyUserId]
+        );
+        const deputyDisplayName = useMemo(() => {
+          if (!deputyUserId || !teamUsers.length) return null;
+          return teamUsers.find((u) => String(u.id) === String(deputyUserId))?.full_name ?? null;
+        }, [deputyUserId, teamUsers]);
         const refresh = useCallback(async () => {
           setError(null);
           if (isLocalMode()) {
@@ -1648,6 +1803,7 @@
           void refresh();
         }, [refresh]);
         const isManager = role === "manager" || role === "admin";
+        const canApprove = userCanApproveAbsences(role, userId, deputyUserId);
         return html`
           <section class="stack" style=${{ gap: "1.25rem" }}>
             <div class="row" style=${{ justifyContent: "space-between", alignItems: "center" }}>
@@ -1657,11 +1813,21 @@
               </div>
               <button type="button" class="btn btn-ghost" onClick=${onBack}>← Atpakaļ uz moduļiem</button>
             </div>
+            ${deputyUserId
+              ? html`
+                  <div class="banner-deputy" role="status">
+                    <strong>Uzmanību:</strong> šobrīd vadītāja pienākumu izpildītājs (p.i.) ir
+                    <strong> ${deputyDisplayName ?? "izvēlēta persona"}</strong>. Apstiprinājumi un „Cits
+                    (saskaņots)” paziņojumi tiek sūtīti uz <strong>${notifyEmail}</strong>.
+                  </div>
+                `
+              : null}
             ${error
               ? html`
                   <div class="banner-warn" role="alert">Kļūda: ${error}</div>
                 `
               : null}
+            <${TeamUsersList} users=${teamUsers} />
             <div class="prombutnes-grid">
               <${AbsenceCalendar} month=${month} onMonthChange=${setMonth} absences=${absences} />
               <div class="stack" style=${{ gap: "0.85rem" }}>
@@ -1670,16 +1836,28 @@
                   role=${role}
                   onCreated=${() => void refresh()}
                 />
-                <${CitsSaskanotsForm} userId=${userId} onCreated=${() => void refresh()} />
+                ${isManager
+                  ? html`<${DeputyDelegePanel}
+                      teamUsers=${teamUsers}
+                      deputyUserId=${deputyUserId}
+                      onDeputyChange=${loadTeamAndDeputy}
+                      currentUserId=${userId}
+                    />`
+                  : null}
+                <${CitsSaskanotsForm}
+                  userId=${userId}
+                  onCreated=${() => void refresh()}
+                  notifyEmail=${notifyEmail}
+                />
               </div>
             </div>
-            ${isManager ? html`<${ManagerApprovals} currentUserId=${userId} onChanged=${() => void refresh()} />` : null}
+            ${canApprove ? html`<${ManagerApprovals} currentUserId=${userId} onChanged=${() => void refresh()} />` : null}
             <${AbsenceRecordsPanel}
               userId=${userId}
-              role=${role}
               absences=${absences}
               types=${typesList}
               onRefresh=${refresh}
+              approverView=${canApprove}
             />
           </section>
         `;
@@ -1687,7 +1865,7 @@
 
       function App() {
         const { session, loading } = useSession();
-        const { profile } = useProfile(session?.user?.id);
+        const { profile, loading: profileLoading } = useProfile(session?.user?.id);
         const [view, setView] = useState("home");
         const [citsToken, setCitsToken] = useState(() => readCitsTokenFromUrl());
         const title = useMemo(
@@ -1701,11 +1879,67 @@
         );
 
         if (citsToken) {
+          if (TIKAI_VIENKARSI_SKATS) {
+            return html`
+              <div class="app-shell">
+                ${title}
+                <${CitsPublicApprove}
+                  token=${citsToken}
+                  sessionUserId=${session?.user?.id ?? null}
+                  profileRole=${profile?.role ?? "employee"}
+                  onDone=${() => {
+                    setCitsToken("");
+                    stripCitsFromUrl();
+                  }}
+                />
+              </div>
+            `;
+          }
+          if (isLocalMode() && !localSessionActive()) {
+            return html`
+              <div class="app-shell">
+                ${title}
+                <${LocalPasswordScreen} />
+              </div>
+            `;
+          }
+          if (configured() && !isLocalMode()) {
+            if (loading) {
+              return html`
+                <div class="app-shell">
+                  ${title}
+                  <p style=${{ color: "var(--muted)" }}>Ielādē…</p>
+                </div>
+              `;
+            }
+            if (!session?.user) {
+              return html`
+                <div class="app-shell">
+                  ${title}
+                  <div class="banner-warn" role="alert" style=${{ marginBottom: "1rem", fontSize: "0.9rem" }}>
+                    Lai apstiprinātu „Cits (saskaņots)”, ielogojies. Apstiprināt drīkst tikai vadītājs,
+                    administrators vai aktuālais p.i.
+                  </div>
+                  <${AuthScreen} />
+                </div>
+              `;
+            }
+            if (profileLoading) {
+              return html`
+                <div class="app-shell">
+                  ${title}
+                  <p style=${{ color: "var(--muted)" }}>Ielādē profilu…</p>
+                </div>
+              `;
+            }
+          }
           return html`
             <div class="app-shell">
               ${title}
               <${CitsPublicApprove}
                 token=${citsToken}
+                sessionUserId=${session?.user?.id ?? null}
+                profileRole=${profile?.role ?? "employee"}
                 onDone=${() => {
                   setCitsToken("");
                   stripCitsFromUrl();

@@ -54,11 +54,12 @@
     if v_full is null and (v_fn is not null or v_ln is not null) then
       v_full := trim(concat_ws(' ', v_fn, v_ln));
     end if;
-    insert into public.users (id, full_name, role)
+    insert into public.users (id, full_name, role, email)
     values (
       new.id,
       coalesce(v_full, split_part(new.email, '@', 1)),
-      coalesce(nullif(new.raw_user_meta_data ->> 'role', ''), 'employee')
+      coalesce(nullif(new.raw_user_meta_data ->> 'role', ''), 'employee'),
+      new.email
     );
     return new;
   end;

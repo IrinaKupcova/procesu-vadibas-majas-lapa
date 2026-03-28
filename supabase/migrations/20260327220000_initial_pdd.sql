@@ -10,6 +10,7 @@ create extension if not exists "pgcrypto";
 create table public.users (
   id uuid primary key references auth.users (id) on delete cascade,
   full_name text,
+  email text,
   role text not null default 'employee' check (role in ('employee', 'manager', 'admin')),
   created_at timestamptz not null default now()
 );
@@ -46,11 +47,12 @@ security definer
 set search_path = public
 as $$
 begin
-  insert into public.users (id, full_name, role)
+  insert into public.users (id, full_name, role, email)
   values (
     new.id,
     coalesce(new.raw_user_meta_data ->> 'full_name', split_part(new.email, '@', 1)),
-    coalesce(nullif(new.raw_user_meta_data ->> 'role', ''), 'employee')
+    coalesce(nullif(new.raw_user_meta_data ->> 'role', ''), 'employee'),
+    new.email
   );
   return new;
 end;
