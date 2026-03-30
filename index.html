@@ -842,6 +842,13 @@
             setLoading(false);
             return;
           }
+          if (sessionStorage.getItem(LS_LOCAL_OK) === "1") {
+            const uid = sessionStorage.getItem(LS_LOCAL_USER_ID) || LOCAL_USER_ID;
+            const em = sessionStorage.getItem(LS_LOCAL_EMAIL) || "demo@local";
+            setSession({ user: { id: uid, email: em } });
+            setLoading(false);
+            return;
+          }
           if (!supabase) {
             setLoading(false);
             return;
@@ -962,14 +969,30 @@
           }
           setBusy(true);
           try {
-            const { error } = await supabase.auth.signInWithOtp({
-              email: email.trim(),
-              options: {
-                emailRedirectTo: window.location.origin + window.location.pathname,
-              },
-            });
-            if (error) setMessage(authUserMessage(error.message));
-            else setMessage("Saite ielogoties nosūtīta uz e-pastu. Atver vēstuli un spied uz saites.");
+            const entered = String(email || "").trim().toLowerCase();
+            if (!entered || !entered.includes("@")) {
+              setMessage("Ievadi korektu darba e-pastu.");
+              return;
+            }
+            const { data, error } = await supabase.from("users").select("*");
+            if (error) {
+              setMessage(authUserMessage(error.message));
+              return;
+            }
+            const list = Array.isArray(data) ? data : [];
+            const user =
+              list.find((u) => String(u?.email ?? u?.["i-mail"] ?? u?.["e-pasts"] ?? "").trim().toLowerCase() === entered) ??
+              null;
+            if (!user) {
+              setMessage("Šis e-pasts nav atrasts Komandas tabulā.");
+              return;
+            }
+            sessionStorage.setItem(LS_LOCAL_OK, "1");
+            sessionStorage.setItem(LS_LOCAL_USER_ID, String(user.id));
+            sessionStorage.setItem(LS_LOCAL_EMAIL, entered);
+            const nm = String(user?.[COL_USER_NAME] ?? user?.full_name ?? user?.["Vārds uzvārds"] ?? "").trim();
+            if (nm) sessionStorage.setItem(LS_LOCAL_NAME, nm);
+            location.reload();
           } finally {
             setBusy(false);
           }
@@ -994,7 +1017,7 @@
                 />
               </div>
               <button type="submit" class="btn btn-primary" disabled=${busy}>
-                ${busy ? "…" : "Nosūtīt ielogošanās saiti"}
+                ${busy ? "…" : "Ieiet"}
               </button>
             </form>
             ${message
@@ -3779,7 +3802,7 @@
             setView("home");
             return;
           }
-          if (isLocalMode()) {
+          if (isLocalMode() || sessionStorage.getItem(LS_LOCAL_OK) === "1") {
             sessionStorage.removeItem(LS_LOCAL_OK);
             sessionStorage.removeItem(LS_LOCAL_NAME);
             sessionStorage.removeItem(LS_LOCAL_USER_ID);
