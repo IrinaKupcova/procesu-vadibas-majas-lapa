@@ -16,6 +16,11 @@ where (v.name is null or trim(v.name) = '') and v.type is not null;
 alter table public.users
   add column if not exists "e-pasts" text;
 
+-- Ja DB vecāka par 20260330120000 migrāciju: bez šīm kolonnām CREATE FUNCTION pdd_can_approve_absences met ar 42703
+alter table public.pdd_deputy_state
+  add column if not exists deputy_valid_from date,
+  add column if not exists deputy_valid_to date;
+
 -- Vadītājs DB: role = 'Admin' — salīdzināšanai izmantojam lower(trim(...))
 create or replace function public.pdd_can_approve_absences()
 returns boolean
