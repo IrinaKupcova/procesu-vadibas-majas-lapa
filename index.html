@@ -1329,7 +1329,7 @@
           supabase
             .from("prombutnes_veidi")
             .select("*")
-            .order("sort_order", { ascending: true })
+            .order("id", { ascending: true })
             .then(({ data, error }) => {
               if (error) console.error(error);
               setTypes((data ?? []).map(normalizeAbsenceTypeRecord));
@@ -3410,7 +3410,7 @@
           supabase
             .from("prombutnes_veidi")
             .select("*")
-            .order("sort_order", { ascending: true })
+            .order("id", { ascending: true })
             .then(({ data, error }) => {
               if (error) console.error(error);
               setTypesList((data ?? []).map(normalizeAbsenceTypeRecord));
