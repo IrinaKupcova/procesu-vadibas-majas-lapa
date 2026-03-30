@@ -1,6 +1,17 @@
 -- PDD: salāgošana ar tipiskām dzīvajām tabulām (e-mail, type, apstiprinajuma_statuss, u.c.)
 -- un RPC, lai anon e-pasta sesija + „Cits” apstiprinājums strādā pret faktisko shēmu.
 
+create table if not exists public.pdd_deputy_state (
+  id smallint primary key default 1 check (id = 1),
+  deputy_user_id uuid references public.users (id) on delete set null,
+  updated_at timestamptz not null default now(),
+  updated_by uuid
+);
+
+insert into public.pdd_deputy_state (id, deputy_user_id)
+values (1, null)
+on conflict (id) do nothing;
+
 -- Kolonnas, kuras bieži ir manuālā DB, bet nav sākotnējā seed
 alter table public.prombutnes_dati
   add column if not exists apstiprinajuma_statuss text;
@@ -8,10 +19,18 @@ alter table public.prombutnes_dati
 alter table public.prombutnes_veidi
   add column if not exists name text;
 
--- Sinhronizē name no kolonnas type (Supabase UI bieži rāda tikai „type”)
-update public.prombutnes_veidi v
-set name = nullif(trim(coalesce(v.type::text, '')), '')
-where (v.name is null or trim(v.name) = '') and v.type is not null;
+-- Sinhronizē name no kolonnas type (tikai ja kolonna „type” eksistē)
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'prombutnes_veidi' and column_name = 'type'
+  ) then
+    update public.prombutnes_veidi v
+    set name = nullif(trim(coalesce(v.type::text, '')), '')
+    where (v.name is null or trim(v.name) = '') and v.type is not null;
+  end if;
+end $$;
 
 alter table public.users
   add column if not exists "e-pasts" text;
