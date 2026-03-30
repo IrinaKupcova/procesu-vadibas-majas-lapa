@@ -1535,24 +1535,51 @@
                   alert("Nokopē automātiski neizdevās. Izmanto šo saiti saskaņošanai:\n\n" + link);
                 }
               } else {
-                const { data: ins, error: insErr } = await supabase
-                  .from("pdd_cits_requests")
-                  .insert({
-                    user_id: selectedUserId,
-                    start_date: startDate,
-                    end_date: endDate,
-                    comment: comment.trim() || null,
-                    notify_email: to,
-                  })
-                  .select("id")
-                  .single();
-                if (insErr) {
-                  alert(insErr.message);
+                const sessionEm = (sessionStorage.getItem(LS_LOCAL_EMAIL) || "").trim().toLowerCase();
+                if (!sessionEm) {
+                  alert("Lai iesniegtu, vispirms ieej ar savu darba e-pastu.");
                   return;
+                }
+                let insId = "";
+                const { data: citsRows, error: rpcCitsErr } = await supabase.rpc("pdd_submit_cits_request_session", {
+                  p_actor_user_id: userId,
+                  p_actor_email: sessionEm,
+                  p_target_user_id: selectedUserId,
+                  p_start: startDate,
+                  p_end: endDate,
+                  p_comment: comment.trim() || null,
+                  p_notify_email: to,
+                });
+                if (!rpcCitsErr && citsRows) {
+                  const row0 = Array.isArray(citsRows) ? citsRows[0] : citsRows;
+                  insId = String(row0?.request_id ?? "");
+                }
+                if (!insId) {
+                  const { data: ins, error: insErr } = await supabase
+                    .from("pdd_cits_requests")
+                    .insert({
+                      user_id: selectedUserId,
+                      start_date: startDate,
+                      end_date: endDate,
+                      comment: comment.trim() || null,
+                      notify_email: to,
+                    })
+                    .select("id")
+                    .single();
+                  if (insErr) {
+                    alert(
+                      insErr.message +
+                        (rpcCitsErr
+                          ? "\n\nJa esi ar anon sesiju: palaid Supabase SQL — funkcija pdd_submit_cits_request_session."
+                          : "")
+                    );
+                    return;
+                  }
+                  insId = ins.id;
                 }
                 const appBase = window.location.href.split("?")[0];
                 const { data: fnData, error: fnErr } = await supabase.functions.invoke("notify-cits-manager", {
-                  body: { request_id: ins.id, app_base_url: appBase },
+                  body: { request_id: insId, app_base_url: appBase },
                 });
                 if (fnErr) {
                   console.error(fnErr);
@@ -1594,20 +1621,40 @@
                 `Darbinieks ${selectedUserId}: ${startDate} — ${endDate}`
               );
             } else {
-              const nowIso = new Date().toISOString();
-              const { error } = await supabase.from("prombutnes_dati").insert({
-                user_id: selectedUserId,
-                type_id: Number(typeId),
-                start_date: startDate,
-                end_date: endDate,
-                comment: comment.trim() || null,
-                status: "approved",
-                approved_by: null,
-                approved_at: nowIso,
-              });
-              if (error) {
-                alert("Kļūda: " + error.message);
+              const sessionEm = (sessionStorage.getItem(LS_LOCAL_EMAIL) || "").trim().toLowerCase();
+              if (!sessionEm) {
+                alert("Lai iesniegtu, vispirms ieej ar savu darba e-pastu.");
                 return;
+              }
+              const { data: insId, error: rpcErr } = await supabase.rpc("pdd_submit_absence_session", {
+                p_actor_user_id: userId,
+                p_actor_email: sessionEm,
+                p_target_user_id: selectedUserId,
+                p_type_id: Number(typeId),
+                p_start: startDate,
+                p_end: endDate,
+                p_comment: comment.trim() || null,
+              });
+              if (rpcErr || !insId) {
+                const nowIso = new Date().toISOString();
+                const { error } = await supabase.from("prombutnes_dati").insert({
+                  user_id: selectedUserId,
+                  type_id: Number(typeId),
+                  start_date: startDate,
+                  end_date: endDate,
+                  comment: comment.trim() || null,
+                  status: "approved",
+                  approved_by: null,
+                  approved_at: nowIso,
+                });
+                if (error) {
+                  alert(
+                    "Kļūda: " +
+                      (rpcErr?.message || error.message) +
+                      "\n\nJa esi ar e-pasta sesiju (bez Supabase Auth): palaid Supabase SQL migrāciju ar funkcijām pdd_submit_absence_session un pdd_submit_cits_request_session."
+                  );
+                  return;
+                }
               }
             }
             setStartDate("");
