@@ -1406,6 +1406,7 @@
       // Atbilstoši migrācijām `i-mail` tiek sinhronizēts no auth email (`users.email`),
       // bet UI mēs to rādām kā "e-pasts".
       const USER_TABLE_COL_DEFS = [
+        { key: "role", label: "role" },
         { key: COL_USER_NAME, label: "Vārds uzvārds" },
         { key: COL_USER_IMAIL, label: "e-pasts" },
         { key: COL_USER_AMATS, label: "Amats" },
@@ -1419,6 +1420,10 @@
 
       function formatUserTableCell(key, val) {
         if (val == null || val === "") return "—";
+        if (key === "role") {
+          const s = String(val);
+          return s.length > 0 ? s[0].toUpperCase() + s.slice(1) : s;
+        }
         if ((key === "email" || key === COL_USER_IMAIL) && String(val).includes("@")) return String(val);
         if (typeof val === "string" && /^\d{4}-\d{2}-\d{2}T/.test(val)) {
           return val.replace("T", " ").slice(0, 19);
