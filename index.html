@@ -916,14 +916,6 @@
                 >
                   Sākums
                 </button>
-                <div>
-                  <button
-                    type="button"
-                  class=${`app-nav-link ${view === "prombutnes" && promSub !== "teamUsers" ? "active" : ""}`}
-                    onClick=${() => onChangeView("prombutnes")}
-                  >
-                    Prombūtnes
-                  </button>
                 <button
                   type="button"
                   class=${`app-nav-link ${view === "prombutnes" && promSub === "teamUsers" ? "active" : ""}`}
@@ -932,8 +924,16 @@
                     onPromSubChange("teamUsers");
                   }}
                 >
-                  Komandas lietotāji
+                  Komanda
                 </button>
+                <div>
+                  <button
+                    type="button"
+                  class=${`app-nav-link ${view === "prombutnes" && promSub !== "teamUsers" ? "active" : ""}`}
+                    onClick=${() => onChangeView("prombutnes")}
+                  >
+                    Prombūtnes
+                  </button>
                 ${view === "prombutnes" && promSub !== "teamUsers"
                     ? html`
                         <div class="app-nav-sub" role="group" aria-label="Prombūtnes apakšsadaļas">
@@ -962,6 +962,13 @@
                                 </button>
                               `
                             : null}
+                          <button
+                            type="button"
+                            class=${`app-nav-sublink ${promSub === "teamUsers" ? "active" : ""}`}
+                            onClick=${() => onPromSubChange("teamUsers")}
+                          >
+                            Komanda
+                          </button>
                         </div>
                       `
                     : null}
@@ -1402,7 +1409,7 @@
         return `${name}${role} (nav e-pasta)`;
       }
 
-      // Komandas lietotāji: parādām tikai Vārds uzvārds, e-pasts un Amats.
+      // Komanda: parādām tikai Vārds uzvārds, e-pasts un Amats.
       // Atbilstoši migrācijām `i-mail` tiek sinhronizēts no auth email (`users.email`),
       // bet UI mēs to rādām kā "e-pasts".
       const USER_TABLE_COL_DEFS = [
@@ -1615,7 +1622,7 @@
         }
         return html`
           <div class="list-panel team-users-panel">
-            <h2 style=${{ margin: "0 0 0.25rem", fontSize: "1rem" }}>Komandas lietotāji</h2>
+            <h2 style=${{ margin: "0 0 0.25rem", fontSize: "1rem" }}>Komanda</h2>
             <p style=${{ margin: "0 0 0.5rem", fontSize: "0.8rem", color: "var(--muted)" }}>
               Dati no <code>public.users</code>. Sinhronizācija ar datubāzi — izmaiņas redzamas visiem (ieslēdz
               Supabase Realtime šīm tabulām: <code>users</code>, <code>prombutnes_dati</code>,
@@ -2789,7 +2796,7 @@
             : promSub === "request"
               ? "Prombūtnes pieteikums"
               : promSub === "teamUsers"
-                ? "Komandas lietotāji"
+                ? "Komanda"
                 : "Apstiprinātāja maiņa";
         return html`
           <section class="stack" style=${{ gap: "1.25rem" }}>
