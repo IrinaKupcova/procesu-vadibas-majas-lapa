@@ -8,20 +8,21 @@
     <!--
       BEZ SERVERA: atver šo failu pārlūkā (file:///…) vai kopē uz jebkuru tīmekļa vietu.
       1) Tiešsaistei: <code>TIKAI_VIENKARSI_SKATS = false</code> un projekta URL + publiskā atslēga failā. Vietējā parole: <code>LocalPasswordScreen</code>. Ātra demo: <code>TIKAI_VIENKARSI_SKATS = true</code>.
+      E-pasti: <code>public.users.email</code> (sinhronizējas no auth). Edge Functions: <code>notify-cits-manager</code>, <code>notify-cits-applicant</code>, <code>notify-absence-applicant</code> — vajadzīgi <code>RESEND_API_KEY</code> un <code>RESEND_FROM</code>.
       2) Palaižot no file:// dažās vecākās sistēmās bloķē trešo pušu moduļus — tad lieto
          to pašu failu caur https (piem. GitHub Pages) vai pārlūka iestatījumos atļauj file piekļuvi.
     -->
     <style>
       :root {
         color-scheme: light dark;
-        --bg: #a4eed8;
-        --surface:  #0a9297;
-        --surface2: #32dd5d;
-        --border: #0e5029;
+        --bg: #c3f5e6;
+        --surface:  #3db7bb;
+        --surface2: #52b4c5;
+        --border: #136e39;
         --text: #01171d;
         --muted: #020c1b;
         --accent: #5ae694;
-        --accent-dim: #17c07f;
+        --accent-dim: #17acc0;
         --radius: 12px;
         font-family: "Segoe UI", system-ui, sans-serif;
         line-height: 1.5;
@@ -38,6 +39,72 @@
       button, input, select, textarea { font: inherit; }
       button { cursor: pointer; }
       .app-shell { max-width: 1200px; margin: 0 auto; padding: 1.25rem 1.25rem 3rem; }
+      .app-layout {
+        display: flex;
+        align-items: stretch;
+        min-height: 100vh;
+        max-width: 1320px;
+        margin: 0 auto;
+      }
+      .app-nav {
+        flex: 0 0 200px;
+        border-right: 1px solid var(--border);
+        background: var(--surface);
+        padding: 1rem 0.65rem;
+      }
+      .app-nav-inner {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+        position: sticky;
+        top: 1rem;
+      }
+      .app-nav-title {
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+        margin: 0 0 0.35rem 0.35rem;
+      }
+      .app-nav-link {
+        display: block;
+        width: 100%;
+        text-align: left;
+        padding: 0.5rem 0.65rem;
+        border-radius: 8px;
+        border: 1px solid transparent;
+        background: transparent;
+        color: inherit;
+        font-size: 0.92rem;
+      }
+      .app-nav-link:hover {
+        border-color: var(--border);
+        background: rgba(0, 0, 0, 0.06);
+      }
+      .app-nav-link.active {
+        background: var(--surface2);
+        border-color: var(--border);
+        font-weight: 600;
+      }
+      .app-main {
+        flex: 1;
+        min-width: 0;
+        padding: 1.25rem 1.25rem 3rem;
+      }
+      @media (max-width: 720px) {
+        .app-layout { flex-direction: column; }
+        .app-nav {
+          flex: none;
+          border-right: none;
+          border-bottom: 1px solid var(--border);
+        }
+        .app-nav-inner {
+          flex-direction: row;
+          flex-wrap: wrap;
+          position: static;
+        }
+        .app-nav-link { flex: 1 1 auto; min-width: 120px; }
+      }
       .app-header {
         display: flex;
         flex-wrap: wrap;
@@ -203,6 +270,97 @@
         .prombutnes-grid { grid-template-columns: 1fr; }
       }
       code { background: var(--surface); padding: 0.1em 0.35em; border-radius: 4px; font-size: 0.9em; }
+      .table-wrap {
+        overflow-x: auto;
+        margin-top: 0.5rem;
+      }
+      .team-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.88rem;
+      }
+      .team-table th,
+      .team-table td {
+        border: 1px solid var(--border);
+        padding: 0.45rem 0.55rem;
+        text-align: left;
+      }
+      .team-table th {
+        background: var(--bg);
+        font-weight: 600;
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+      }
+      .team-table tbody tr:nth-child(even) {
+        background: rgba(0, 0, 0, 0.04);
+      }
+      .team-users-panel {
+        margin-top: 1.5rem;
+      }
+      .app-nav-sub {
+        margin: 0.35rem 0 0 0.35rem;
+        padding-left: 0.65rem;
+        border-left: 2px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+      }
+      .app-nav-sublink {
+        font-size: 0.86rem;
+        text-align: left;
+        padding: 0.35rem 0.5rem;
+        border-radius: 6px;
+        border: none;
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+      }
+      .app-nav-sublink:hover {
+        color: var(--text);
+        background: rgba(0, 0, 0, 0.06);
+      }
+      .app-nav-sublink.active {
+        color: var(--text);
+        font-weight: 600;
+        background: rgba(0, 0, 0, 0.08);
+      }
+      .hist-table-wrap {
+        margin-top: 0.5rem;
+      }
+      .hist-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.8rem;
+      }
+      .hist-table th,
+      .hist-table td {
+        border: 1px solid var(--border);
+        padding: 0.4rem 0.45rem;
+        text-align: left;
+        vertical-align: top;
+      }
+      .hist-table th {
+        background: var(--bg);
+        font-weight: 600;
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        color: var(--muted);
+        white-space: nowrap;
+      }
+      .hist-table tbody tr:nth-child(even) {
+        background: rgba(0, 0, 0, 0.03);
+      }
+      .hist-row-highlight {
+        outline: 2px solid var(--accent);
+        outline-offset: -2px;
+        background: rgba(90, 230, 148, 0.15) !important;
+      }
+      .cal-chip {
+        cursor: pointer;
+      }
     </style>
   </head>
   <body>
@@ -238,10 +396,30 @@
       const LS_LOCAL_DEPUTY_USER_ID = "pdd_local_deputy_user_id";
       const LS_LOCAL_DEPUTY_FROM = "pdd_local_deputy_from";
       const LS_LOCAL_DEPUTY_TO = "pdd_local_deputy_to";
-      const DEFAULT_MANAGER_EMAIL = "katrina.jirgensone@vid.gov.lv";
+      /** Pamata e-pasts paziņojumiem, kad nav aktīva aizvietotāja (saskaņā ar PDD iestatījumiem). */
+      const DEFAULT_MANAGER_EMAIL = "pliada@inbox.lv";
       const DEFAULT_MANAGER_NAME = "Katrīna Jirgensone";
       /** Dropdown: nav DB p.i. — apstiprinājumi uz pamatvadītāju. */
       const DEPUTY_OPT_MANAGER = "__vaditajs__";
+      /** Supabase public.users kolonnas (kā tabulas skatā). */
+      const COL_USER_NAME = "Vārds uzvārds";
+      const COL_USER_IMAIL = "i-mail";
+      const COL_USER_AMATS = "Amats";
+      const TEAM_PAGE_SIZE = 10;
+
+      function userDisplayName(u) {
+        if (!u) return "—";
+        const n = u[COL_USER_NAME] ?? u.full_name;
+        return (n && String(n).trim()) || "—";
+      }
+
+      function userImail(u) {
+        if (!u) return "";
+        // Supabase migrācijās `i-mail` bieži ir sinhronizēta no `email`, bet UI rādām kā e-pasts.
+        const e = u.email ?? u[COL_USER_IMAIL];
+        const s = e && String(e).trim();
+        return s && s.includes("@") ? s : "";
+      }
 
       /** true: tūlīt moduļu skats. false: tiešsaistes konts (URL+atslēga failā) vai lokālā parole. */
       const TIKAI_VIENKARSI_SKATS = false;
@@ -343,8 +521,8 @@
         if (!supabaseClient) return [];
         const r = await supabaseClient
           .from("users")
-          .select("id, full_name, email")
-          .order("full_name", { ascending: true });
+          .select("*")
+          .order(COL_USER_NAME, { ascending: true });
         if (r.error) {
           console.error(r.error);
           return [];
@@ -363,12 +541,13 @@
       function resolveNotifyEmail(teamUsers, deputyUserId) {
         if (deputyUserId && teamUsers?.length) {
           const d = teamUsers.find((u) => String(u.id) === String(deputyUserId));
-          if (d?.email && String(d.email).includes("@")) return String(d.email).trim();
+          const em = userImail(d);
+          if (em) return em;
         }
         return DEFAULT_MANAGER_EMAIL;
       }
 
-      /** Gaidošo akceptu / Cits apstiprinājums: vadītājs, admin vai aktuālais p.i. */
+      /** Gaidošo akceptu / Cits apstiprinājums: vadītājs, admin vai aktīvais Prombūtnes apstiprinātājs. */
       function userCanApproveAbsences(profileRole, sessionUserId, deputyUserId) {
         if (profileRole === "manager" || profileRole === "admin") return true;
         if (
@@ -535,10 +714,16 @@
             return;
           }
           if (isLocalMode()) {
+            const ln = localDisplayName();
             setProfile({
               id: LOCAL_USER_ID,
-              full_name: localDisplayName(),
+              full_name: ln,
+              [COL_USER_NAME]: ln,
+              [COL_USER_IMAIL]: "demo@local",
+              [COL_USER_AMATS]: "",
+              email: null,
               role: "manager",
+              created_at: null,
             });
             setLoading(false);
             return;
@@ -707,6 +892,84 @@
         `;
       }
 
+      function AppShellWithNav({
+        view,
+        onChangeView,
+        promSub,
+        onPromSubChange,
+        showPromDeputyTab,
+        header,
+        children,
+      }) {
+        return html`
+          <div class="app-layout">
+            <aside class="app-nav" aria-label="Galvenā navigācija">
+              <div class="app-nav-inner">
+                <p class="app-nav-title">Navigācija</p>
+                <button
+                  type="button"
+                  class=${`app-nav-link ${view === "home" ? "active" : ""}`}
+                  onClick=${() => onChangeView("home")}
+                >
+                  Sākums
+                </button>
+                <div>
+                  <button
+                    type="button"
+                    class=${`app-nav-link ${view === "prombutnes" ? "active" : ""}`}
+                    onClick=${() => onChangeView("prombutnes")}
+                  >
+                    Prombūtnes
+                  </button>
+                  ${view === "prombutnes"
+                    ? html`
+                        <div class="app-nav-sub" role="group" aria-label="Prombūtnes apakšsadaļas">
+                          <button
+                            type="button"
+                            class=${`app-nav-sublink ${promSub === "calendar" ? "active" : ""}`}
+                            onClick=${() => onPromSubChange("calendar")}
+                          >
+                            Kalendārs
+                          </button>
+                          <button
+                            type="button"
+                            class=${`app-nav-sublink ${promSub === "request" ? "active" : ""}`}
+                            onClick=${() => onPromSubChange("request")}
+                          >
+                            Prombūtnes pieteikums
+                          </button>
+                          <button
+                            type="button"
+                            class=${`app-nav-sublink ${promSub === "teamUsers" ? "active" : ""}`}
+                            onClick=${() => onPromSubChange("teamUsers")}
+                          >
+                            Komandas lietotāji
+                          </button>
+                          ${showPromDeputyTab
+                            ? html`
+                                <button
+                                  type="button"
+                                  class=${`app-nav-sublink ${promSub === "deputy" ? "active" : ""}`}
+                                  onClick=${() => onPromSubChange("deputy")}
+                                >
+                                  Apstiprinātāja maiņa
+                                </button>
+                              `
+                            : null}
+                        </div>
+                      `
+                    : null}
+                </div>
+              </div>
+            </aside>
+            <div class="app-main">
+              ${header}
+              ${children}
+            </div>
+          </div>
+        `;
+      }
+
       function Dashboard({ onOpenPrombutnes }) {
         return html`
           <section aria-labelledby="dashboard-title">
@@ -716,7 +979,7 @@
             <div class="card-grid">
               <button type="button" class="card" onClick=${onOpenPrombutnes}>
                 <h3>Prombūtnes</h3>
-                <p>Kalendārs, prombūtnes pieteikumi un vadītāja akcepts.</p>
+                <p>Kalendārs, pieteikums un apstiprinātāja maiņa; „Cits (ar saskaņojumu)” — caur e-pastu.</p>
               </button>
               <div class="card" style=${{ opacity: 0.65, cursor: "default" }}>
                 <h3>Modulis2</h3>
@@ -735,14 +998,36 @@
       function dayKey(d) {
         return format(d, "yyyy-MM-dd");
       }
+      function hexToRgb(hex) {
+        const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(String(hex || "").trim());
+        if (!m) return { r: 100, g: 116, b: 139 };
+        return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
+      }
+      /** Katram prombūtnes veidam sava krāsa; statusam — kontūra (gaida / noraidīts). */
       function chipStyle(a) {
-        if (a.status === "approved")
-          return { background: a.type?.color ?? "#34d399", color: "#0f172a" };
-        if (a.status === "rejected") return { background: "#7f1d1d", color: "#fecaca" };
-        return { background: "#854d0e", color: "#fef3c7" };
+        const raw = a.type?.color ?? "#64748b";
+        const tc = String(raw).startsWith("#") ? raw : "#64748b";
+        const { r, g, b } = hexToRgb(tc);
+        const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+        const fg = luminance > 0.55 ? "#0f172a" : "#f8fafc";
+        if (a.status === "approved") return { background: tc, color: fg };
+        if (a.status === "rejected")
+          return {
+            background: tc,
+            color: fg,
+            opacity: 0.9,
+            boxShadow: "inset 0 0 0 2px rgba(153,27,27,0.95)",
+            textDecoration: "line-through",
+          };
+        return {
+          background: tc,
+          color: fg,
+          opacity: 0.9,
+          boxShadow: "inset 0 0 0 2px rgba(217,119,6,0.95)",
+        };
       }
 
-      function AbsenceCalendar({ month, onMonthChange, absences, caption }) {
+      function AbsenceCalendar({ month, onMonthChange, absences, caption, onPickAbsence }) {
         const start = startOfWeek(startOfMonth(month), { weekStartsOn: 1 });
         const end = endOfWeek(endOfMonth(month), { weekStartsOn: 1 });
         const days = eachDayOfInterval({ start, end });
@@ -783,20 +1068,37 @@
                     ${items.map((a) => html`
                       <span
                         key=${a.id}
+                        role="button"
+                        tabindex="0"
                         class="cal-chip"
                         style=${chipStyle(a)}
                         title=${[
-                          a.employee?.full_name ?? "Darbinieks",
+                          userDisplayName(a.employee) !== "—" ? userDisplayName(a.employee) : "Darbinieks",
                           a.type?.name ?? "",
                           a.status,
                           a.comment
                             ? `Komentārs: ${String(a.comment).replace(/"/g, "'")}`
                             : "",
+                          onPickAbsence ? "Spied, lai atvērtu vēsturē" : "",
                         ]
                           .filter(Boolean)
                           .join(" — ")}
+                        onClick=${(ev) => {
+                          ev.stopPropagation();
+                          onPickAbsence?.(a);
+                        }}
+                        onKeyDown=${(ev) => {
+                          if (ev.key === "Enter" || ev.key === " ") {
+                            ev.preventDefault();
+                            onPickAbsence?.(a);
+                          }
+                        }}
                       >
-                        ${(a.employee?.full_name?.split(" ")[0] ?? "?") + " · " + (a.type?.name ?? "")}
+                        ${(userDisplayName(a.employee).split(" ")[0] !== "—"
+                          ? userDisplayName(a.employee).split(" ")[0]
+                          : "?") +
+                          " · " +
+                          (a.type?.name ?? "")}
                       </span>
                     `)}
                   </div>
@@ -834,16 +1136,35 @@
         useEffect(() => {
           let cancelled = false;
           (async () => {
+            const locName = localDisplayName();
             const list = await fetchAbsenceFormUsers(supabase, {
               localMode: isLocalMode(),
-              localUser: { id: userId, full_name: localDisplayName() },
+              localUser: {
+                id: userId,
+                full_name: locName,
+                [COL_USER_NAME]: locName,
+                [COL_USER_IMAIL]: "demo@local",
+                [COL_USER_AMATS]: "",
+              },
             });
             if (cancelled) return;
             if (isManager) {
               setUsers(list);
             } else {
               const self = list.find((u) => String(u.id) === String(userId));
-              setUsers(self ? [self] : [{ id: userId, full_name: localDisplayName() }]);
+              setUsers(
+                self
+                  ? [self]
+                  : [
+                      {
+                        id: userId,
+                        full_name: locName,
+                        [COL_USER_NAME]: locName,
+                        [COL_USER_IMAIL]: "demo@local",
+                        [COL_USER_AMATS]: "",
+                      },
+                    ]
+              );
             }
             const uid = String(userId);
             const defaultId =
@@ -870,7 +1191,7 @@
             if (isCitsFlow) {
               const to = notifyEmail;
               if (!to || !String(to).includes("@")) {
-                alert("Nav derīga e-pasta adrese saskaņotājam (vadītājs vai p.i.).");
+                alert("Nav derīga e-pasta adrese saskaņotājam (vadītājs vai apstiprinātājs).");
                 return;
               }
               if (isLocalMode()) {
@@ -933,6 +1254,7 @@
               return;
             }
             if (isLocalMode()) {
+              const nowIso = new Date().toISOString();
               const rows = getLocalAbsences();
               rows.push({
                 id: crypto.randomUUID(),
@@ -941,18 +1263,23 @@
                 start_date: startDate,
                 end_date: endDate,
                 comment: comment.trim() || null,
-                status: "pending",
-                created_at: new Date().toISOString(),
+                status: "approved",
+                approved_by: userId,
+                approved_at: nowIso,
+                created_at: nowIso,
               });
               setLocalAbsences(rows);
             } else {
+              const nowIso = new Date().toISOString();
               const { error } = await supabase.from("prombutnes_dati").insert({
                 user_id: selectedUserId,
                 type_id: Number(typeId),
                 start_date: startDate,
                 end_date: endDate,
                 comment: comment.trim() || null,
-                status: "pending",
+                status: "approved",
+                approved_by: userId,
+                approved_at: nowIso,
               });
               if (error) {
                 alert("Kļūda: " + error.message);
@@ -973,9 +1300,9 @@
           <div class="list-panel">
             <h2>Prombūtnes pieteikums</h2>
             <p style=${{ margin: "0 0 0.75rem", fontSize: "0.82rem", color: "var(--muted)" }}>
-              Izvēlies veidu un periodu. Veids <strong>Cits (ar saskaņojumu)</strong> nozīmē obligātu e-pasta
-              saskaņošanu — pieprasījums un saite tiek nosūtīta uz <strong>${notifyEmail}</strong>, nevis uzreiz
-              parastajā „gaida akceptu” kārtībā.
+              <strong>Cits (ar saskaņojumu)</strong> — obligāta e-pasta saskaņošana: pieprasījums un saite uz
+              <strong>${notifyEmail}</strong>. Pārējie veidi tiek ierakstīti kā apstiprināti un uzreiz redzami
+              kalendārā (bez atsevišķa akcepta soļa šeit).
             </p>
             <form class="stack" onSubmit=${handleSubmit}>
               <div class="field">
@@ -991,7 +1318,7 @@
                   <option value="">Izvēlies darbinieku</option>
                   ${users.map(
                     (u) => html`
-                      <option key=${u.id} value=${u.id}>${u.full_name ?? u.id}</option>
+                      <option key=${u.id} value=${u.id}>${formatUserSelectLabel(u)}</option>
                     `
                   )}
                 </select>
@@ -1060,32 +1387,404 @@
         `;
       }
 
-      function TeamUsersList({ users }) {
-        if (!users?.length) {
-          return html`
-            <div class="list-panel">
-              <h2>Komandas lietotāji</h2>
-              <p style=${{ margin: 0, color: "var(--muted)", fontSize: "0.88rem" }}>Nav datu.</p>
-            </div>
-          `;
+      /** Izvēlnēm: kā DB — Vārds uzvārds, i-mail, loma. */
+      function formatUserSelectLabel(u) {
+        const name = userDisplayName(u);
+        const em = userImail(u);
+        const role = u?.role && u.role !== "employee" ? ` · ${u.role}` : "";
+        if (em) return `${name} — ${em}${role}`;
+        return `${name}${role} (nav e-pasta)`;
+      }
+
+      // Komandas lietotāji: parādām tikai Vārds uzvārds, e-pasts un Amats.
+      // Atbilstoši migrācijām `i-mail` tiek sinhronizēts no auth email (`users.email`),
+      // bet UI mēs to rādām kā "e-pasts".
+      const USER_TABLE_COL_DEFS = [
+        { key: COL_USER_NAME, label: "Vārds uzvārds" },
+        { key: COL_USER_IMAIL, label: "e-pasts" },
+        { key: COL_USER_AMATS, label: "Amats" },
+      ];
+
+      function teamUsersTableColumns(_users) {
+        const labels = Object.fromEntries(USER_TABLE_COL_DEFS.map((c) => [c.key, c.label]));
+        const cols = USER_TABLE_COL_DEFS.map((c) => c.key);
+        return { cols, labels };
+      }
+
+      function formatUserTableCell(key, val) {
+        if (val == null || val === "") return "—";
+        if ((key === "email" || key === COL_USER_IMAIL) && String(val).includes("@")) return String(val);
+        if (typeof val === "string" && /^\d{4}-\d{2}-\d{2}T/.test(val)) {
+          return val.replace("T", " ").slice(0, 19);
+        }
+        return String(val);
+      }
+
+      function buildUserRowPayload(vardUzv, imail, amats, role) {
+        const v = String(vardUzv ?? "").trim();
+        const i = String(imail ?? "").trim();
+        const a = String(amats ?? "").trim();
+        return {
+          [COL_USER_NAME]: v || null,
+          [COL_USER_IMAIL]: i || null,
+          [COL_USER_AMATS]: a || null,
+          role,
+          full_name: v || null,
+          email: i || null,
+        };
+      }
+
+      function isValidUuid(s) {
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          String(s || "").trim()
+        );
+      }
+
+      function TeamUsersDirectory({ users, canAdmin, currentUserId, onReload }) {
+        const { cols, labels } = teamUsersTableColumns(users);
+        const colCount = Math.max(cols.length, 1) + (canAdmin ? 1 : 0);
+        const [page, setPage] = useState(0);
+        const [editing, setEditing] = useState(null);
+        const [form, setForm] = useState({
+          vardUzv: "",
+          imail: "",
+          amats: "",
+          role: "employee",
+        });
+        const [addOpen, setAddOpen] = useState(false);
+        const [addForm, setAddForm] = useState({
+          id: "",
+          vardUzv: "",
+          imail: "",
+          amats: "",
+          role: "employee",
+        });
+        const [busy, setBusy] = useState(false);
+        const [delId, setDelId] = useState(null);
+        const total = users?.length ?? 0;
+        const totalPages = Math.max(1, Math.ceil(total / TEAM_PAGE_SIZE) || 1);
+        const safePage = Math.min(page, totalPages - 1);
+        const pagedUsers = (users ?? []).slice(
+          safePage * TEAM_PAGE_SIZE,
+          safePage * TEAM_PAGE_SIZE + TEAM_PAGE_SIZE
+        );
+        const rowFrom = total ? safePage * TEAM_PAGE_SIZE + 1 : 0;
+        const rowTo = total ? Math.min(total, (safePage + 1) * TEAM_PAGE_SIZE) : 0;
+        useEffect(() => {
+          const tp = Math.max(1, Math.ceil((users?.length ?? 0) / TEAM_PAGE_SIZE) || 1);
+          setPage((p) => Math.min(p, tp - 1));
+        }, [users?.length]);
+        function openEdit(u) {
+          setEditing(u.id);
+          setForm({
+            vardUzv: u[COL_USER_NAME] ?? u.full_name ?? "",
+            imail: userImail(u),
+            amats: u[COL_USER_AMATS] ?? "",
+            role: u.role ?? "employee",
+          });
+        }
+        async function saveEdit(e) {
+          e.preventDefault();
+          if (!editing) return;
+          setBusy(true);
+          try {
+            const payload = buildUserRowPayload(form.vardUzv, form.imail, form.amats, form.role);
+            const { error } = await supabase.from("users").update(payload).eq("id", editing);
+            if (error) {
+              alert(error.message);
+              return;
+            }
+            setEditing(null);
+            await onReload();
+          } finally {
+            setBusy(false);
+          }
+        }
+        async function saveAdd(e) {
+          e.preventDefault();
+          const id = addForm.id.trim();
+          if (!isValidUuid(id)) {
+            alert("Lietotāja ID jābūt derīgam UUID (Supabase → Authentication → Users).");
+            return;
+          }
+          setBusy(true);
+          try {
+            const payload = { id, ...buildUserRowPayload(addForm.vardUzv, addForm.imail, addForm.amats, addForm.role) };
+            const { error } = await supabase.from("users").insert(payload);
+            if (error) {
+              alert(error.message);
+              return;
+            }
+            setAddOpen(false);
+            setAddForm({ id: "", vardUzv: "", imail: "", amats: "", role: "employee" });
+            await onReload();
+          } finally {
+            setBusy(false);
+          }
+        }
+        async function confirmDelete() {
+          if (!delId) return;
+          setBusy(true);
+          try {
+            const { error } = await supabase.from("users").delete().eq("id", delId);
+            if (error) {
+              alert(error.message);
+              return;
+            }
+            setDelId(null);
+            await onReload();
+          } finally {
+            setBusy(false);
+          }
         }
         return html`
-          <div class="list-panel">
-            <h2>Komandas lietotāji</h2>
-            <ul style=${{ margin: 0, paddingLeft: "1.2rem", fontSize: "0.88rem" }}>
-              ${users.map(
-                (u) => html`
-                  <li key=${u.id} style=${{ marginBottom: "0.35rem" }}>
-                    <strong>${u.full_name ?? u.id}</strong>
-                    ${u.email
-                      ? html`<span style=${{ color: "var(--muted)", marginLeft: "0.35rem" }}>${u.email}</span>`
-                      : html`<span style=${{ color: "var(--muted)", marginLeft: "0.35rem", fontStyle: "italic" }}
-                        >(e-pasts vēl nav tabulā)</span
-                      >`}
-                  </li>
+          <div class="list-panel team-users-panel">
+            <h2 style=${{ margin: "0 0 0.25rem", fontSize: "1rem" }}>Komandas lietotāji</h2>
+            <p style=${{ margin: "0 0 0.5rem", fontSize: "0.8rem", color: "var(--muted)" }}>
+              Dati no <code>public.users</code>. Sinhronizācija ar datubāzi — izmaiņas redzamas visiem (ieslēdz
+              Supabase Realtime šīm tabulām: <code>users</code>, <code>prombutnes_dati</code>,
+              <code>pdd_deputy_state</code>, <code>pdd_cits_requests</code>).
+              ${canAdmin
+                ? " Vadītājs var pievienot rindu tikai tad, ja lietotājs jau pastāv Authentication (tas pats UUID)."
+                : ""}
+            </p>
+            ${canAdmin
+              ? html`
+                  <div class="row" style=${{ marginBottom: "0.65rem" }}>
+                    <button type="button" class="btn btn-primary btn-small" onClick=${() => setAddOpen(!addOpen)}>
+                      ${addOpen ? "Aizvērt formu" : "+ Pievienot lietotāju"}
+                    </button>
+                  </div>
+                  ${addOpen
+                    ? html`
+                        <form class="stack" style=${{ marginBottom: "1rem", padding: "0.75rem", border: "1px solid var(--border)", borderRadius: "8px" }} onSubmit=${saveAdd}>
+                          <div class="field">
+                            <label>Lietotāja UUID (no Supabase Authentication)</label>
+                            <input
+                              class="input"
+                              required
+                              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                              value=${addForm.id}
+                              onChange=${(ev) => setAddForm((f) => ({ ...f, id: ev.target.value }))}
+                            />
+                          </div>
+                          <div class="field">
+                            <label>Vārds uzvārds</label>
+                            <input
+                              class="input"
+                              value=${addForm.vardUzv}
+                              onChange=${(ev) => setAddForm((f) => ({ ...f, vardUzv: ev.target.value }))}
+                            />
+                          </div>
+                          <div class="field">
+                            <label>e-pasts</label>
+                            <input
+                              class="input"
+                              type="email"
+                              value=${addForm.imail}
+                              onChange=${(ev) => setAddForm((f) => ({ ...f, imail: ev.target.value }))}
+                            />
+                          </div>
+                          <div class="field">
+                            <label>Amats</label>
+                            <input
+                              class="input"
+                              value=${addForm.amats}
+                              onChange=${(ev) => setAddForm((f) => ({ ...f, amats: ev.target.value }))}
+                            />
+                          </div>
+                          <div class="field">
+                            <label>Loma</label>
+                            <select
+                              class="select"
+                              value=${addForm.role}
+                              onChange=${(ev) => setAddForm((f) => ({ ...f, role: ev.target.value }))}
+                            >
+                              <option value="employee">employee</option>
+                              <option value="manager">manager</option>
+                              <option value="admin">admin</option>
+                            </select>
+                          </div>
+                          <button type="submit" class="btn btn-primary btn-small" disabled=${busy}>Saglabāt DB</button>
+                        </form>
+                      `
+                    : null}
                 `
-              )}
-            </ul>
+              : null}
+            <div class="table-wrap">
+              <table class="team-table">
+                <thead>
+                  <tr>
+                    ${cols.map((key) => html`<th key=${key}>${labels[key] ?? key}</th>`)}
+                    ${canAdmin ? html`<th>Darbības</th>` : null}
+                  </tr>
+                </thead>
+                <tbody>
+                  ${users?.length
+                    ? pagedUsers.map((u) => html`
+                        <tr key=${u.id}>
+                          ${cols.map((key) => {
+                            const cellVal = key === COL_USER_IMAIL ? userImail(u) : u[key];
+                            return html`<td key=${key}>${formatUserTableCell(key, cellVal)}</td>`;
+                          })}
+                          ${canAdmin
+                            ? html`
+                                <td>
+                                  <div class="row" style=${{ gap: "0.25rem" }}>
+                                    <button type="button" class="btn btn-ghost btn-small" onClick=${() => openEdit(u)}>
+                                      Labot
+                                    </button>
+                                    <button
+                                      type="button"
+                                      class="btn btn-danger btn-small"
+                                      disabled=${String(u.id) === String(currentUserId)}
+                                      title=${String(u.id) === String(currentUserId) ? "Nevar dzēst pašam sev" : ""}
+                                      onClick=${() => setDelId(u.id)}
+                                    >
+                                      Dzēst
+                                    </button>
+                                  </div>
+                                </td>
+                              `
+                            : null}
+                        </tr>
+                      `)
+                    : html`
+                        <tr>
+                          <td colspan=${colCount}>Nav datu.</td>
+                        </tr>
+                      `}
+                </tbody>
+              </table>
+            </div>
+            ${total > TEAM_PAGE_SIZE
+              ? html`
+                  <div
+                    class="row"
+                    style=${{ justifyContent: "space-between", alignItems: "center", marginTop: "0.65rem", flexWrap: "wrap", gap: "0.5rem" }}
+                  >
+                    <span style=${{ fontSize: "0.82rem", color: "var(--muted)" }}>
+                      Rindas ${rowFrom}–${rowTo} no ${total} · lapa ${safePage + 1} / ${totalPages}
+                    </span>
+                    <div class="row" style=${{ gap: "0.35rem" }}>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-small"
+                        disabled=${safePage <= 0 || busy}
+                        onClick=${() => setPage((p) => Math.max(0, p - 1))}
+                      >
+                        Iepriekšējā
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-small"
+                        disabled=${safePage >= totalPages - 1 || busy}
+                        onClick=${() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                      >
+                        Nākamā
+                      </button>
+                    </div>
+                  </div>
+                `
+              : total
+                ? html`<p style=${{ margin: "0.55rem 0 0", fontSize: "0.82rem", color: "var(--muted)" }}>Kopā ${total} rindas.</p>`
+                : null}
+            ${editing
+              ? html`
+                  <div
+                    style=${{
+                      position: "fixed",
+                      inset: 0,
+                      background: "rgba(0,0,0,0.45)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      zIndex: 50,
+                      padding: "1rem",
+                    }}
+                    onClick=${() => setEditing(null)}
+                  >
+                    <div class="list-panel" style=${{ maxWidth: "400px", width: "100%" }} onClick=${(ev) => ev.stopPropagation()}>
+                      <h3 style=${{ margin: "0 0 0.65rem", fontSize: "1rem" }}>Labot lietotāju</h3>
+                      <form class="stack" onSubmit=${saveEdit}>
+                        <div class="field">
+                          <label>Vārds uzvārds</label>
+                          <input
+                            class="input"
+                            value=${form.vardUzv}
+                            onChange=${(ev) => setForm((f) => ({ ...f, vardUzv: ev.target.value }))}
+                          />
+                        </div>
+                        <div class="field">
+                            <label>e-pasts</label>
+                          <input
+                            class="input"
+                            type="email"
+                            value=${form.imail}
+                            onChange=${(ev) => setForm((f) => ({ ...f, imail: ev.target.value }))}
+                          />
+                        </div>
+                        <div class="field">
+                          <label>Amats</label>
+                          <input
+                            class="input"
+                            value=${form.amats}
+                            onChange=${(ev) => setForm((f) => ({ ...f, amats: ev.target.value }))}
+                          />
+                        </div>
+                        <div class="field">
+                          <label>Loma</label>
+                          <select
+                            class="select"
+                            value=${form.role}
+                            onChange=${(ev) => setForm((f) => ({ ...f, role: ev.target.value }))}
+                          >
+                            <option value="employee">employee</option>
+                            <option value="manager">manager</option>
+                            <option value="admin">admin</option>
+                          </select>
+                        </div>
+                        <div class="row">
+                          <button type="submit" class="btn btn-primary btn-small" disabled=${busy}>Saglabāt</button>
+                          <button type="button" class="btn btn-ghost btn-small" onClick=${() => setEditing(null)}>
+                            Atcelt
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  </div>
+                `
+              : null}
+            ${delId
+              ? html`
+                  <div
+                    style=${{
+                      position: "fixed",
+                      inset: 0,
+                      background: "rgba(0,0,0,0.45)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      zIndex: 50,
+                      padding: "1rem",
+                    }}
+                    onClick=${() => setDelId(null)}
+                  >
+                    <div class="list-panel" style=${{ maxWidth: "380px", width: "100%" }} onClick=${(ev) => ev.stopPropagation()}>
+                      <p style=${{ margin: "0 0 0.75rem" }}>
+                        Dzēst ierakstu no <code>users</code>? Auth konts paliek — vajadzības gadījumā dzēš arī no
+                        Supabase Authentication.
+                      </p>
+                      <div class="row">
+                        <button type="button" class="btn btn-danger btn-small" disabled=${busy} onClick=${confirmDelete}>
+                          Jā, dzēst
+                        </button>
+                        <button type="button" class="btn btn-ghost btn-small" onClick=${() => setDelId(null)}>Nē</button>
+                      </div>
+                    </div>
+                  </div>
+                `
+              : null}
           </div>
         `;
       }
@@ -1122,7 +1821,7 @@
               await onDeputyChange();
               setMsg(
                 nextId
-                  ? "P.i. un periods saglabāti (vietējais režīms)."
+                  ? "Apstiprinātājs un periods saglabāti (vietējais režīms)."
                   : "Atiestatīts uz pamatvadītāju (vietējais režīms)."
               );
               return;
@@ -1144,7 +1843,7 @@
             await onDeputyChange();
             setMsg(
               nextId
-                ? "P.i. saglabāts — apstiprinājumi un „Cits (ar saskaņojumu)” uz izvēlētā e-pastu norādītajā periodā."
+                ? "Apstiprinātājs saglabāts — apstiprinājumi un „Cits (ar saskaņojumu)” uz izvēlētā e-pastu norādītajā periodā."
                 : "Atiestatīts uz pamatvadītāju."
             );
           } finally {
@@ -1157,24 +1856,41 @@
           const nextId = isMgrOpt ? null : sel;
           const fromStr = isMgrOpt ? "" : periodFrom.trim();
           const toStr = isMgrOpt ? "" : periodTo.trim();
-          if (!isMgrOpt && fromStr && toStr && fromStr > toStr) {
-            alert("Datums „no” nevar būt pēc „līdz”.");
-            return;
+          if (!isMgrOpt) {
+            if (!fromStr || !toStr) {
+              alert("Apstiprinātāja termiņš ir obligāts: norādi datumus „no” un „līdz”.");
+              return;
+            }
+            if (fromStr > toStr) {
+              alert("Datums „no” nevar būt pēc „līdz”.");
+              return;
+            }
           }
           await persist(nextId, fromStr, toStr);
         }
         async function resetToManager() {
+          if (
+            !window.confirm(
+              "Vai apstiprini atiestatīšanu uz pamatvadītāju " +
+                DEFAULT_MANAGER_NAME +
+                "? Apstiprinātāja periods un izvēlētā persona tiks notīrīti."
+            )
+          ) {
+            return;
+          }
           setSel(DEPUTY_OPT_MANAGER);
           setPeriodFrom("");
           setPeriodTo("");
           await persist(null, "", "");
         }
+        const showPeriod = sel !== DEPUTY_OPT_MANAGER;
         return html`
           <div class="list-panel" style=${{ marginTop: "0.85rem" }}>
-            <h3 style=${{ margin: "0 0 0.5rem", fontSize: "0.95rem" }}>Vadītāja pienākumu izpildītājs (p.i.)</h3>
+            <h3 style=${{ margin: "0 0 0.5rem", fontSize: "0.95rem" }}>Prombūtnes apstiprinātājs</h3>
             <p style=${{ margin: "0 0 0.65rem", fontSize: "0.8rem", color: "var(--muted)" }}>
-              Pirmais punkts — pamatvadītājs; tad personas no <code>users</code>. Norādi periodu, kad p.i. ir tiesīgs
-              apstiprināt. Tukši perioda lauki (izvēlētai personai) — bez datuma ierobežojuma.
+              Noklusējuma apstiprinātājs — <strong>${DEFAULT_MANAGER_NAME}</strong> (termiņa lauki nerādās). Citu personu
+              izvēlei obligāts derīguma periods. Pēc <code>līdz</code> datuma beigām sistēma automātiski atiestata uz
+              pamatvadītāju (DB tiek notīrīta, ielādējot lapu).
             </p>
             <form class="stack" onSubmit=${saveForm}>
               <div class="field">
@@ -1190,43 +1906,45 @@
                   </option>
                   ${teamUsers.map(
                     (u) => html`
-                      <option key=${u.id} value=${u.id}>
-                        ${u.full_name ?? u.id}${u.email ? ` — ${u.email}` : ""}
-                      </option>
+                      <option key=${u.id} value=${u.id}>${formatUserSelectLabel(u)}</option>
                     `
                   )}
                 </select>
               </div>
-              <div class="row" style=${{ gap: "0.75rem" }}>
-                <div class="field" style=${{ flex: "1 1 140px" }}>
-                  <label for="dep-from">p.i. periods no</label>
-                  <input
-                    id="dep-from"
-                    type="date"
-                    class="input"
-                    disabled=${sel === DEPUTY_OPT_MANAGER}
-                    value=${periodFrom}
-                    onChange=${(ev) => setPeriodFrom(ev.target.value)}
-                  />
-                </div>
-                <div class="field" style=${{ flex: "1 1 140px" }}>
-                  <label for="dep-to">līdz</label>
-                  <input
-                    id="dep-to"
-                    type="date"
-                    class="input"
-                    disabled=${sel === DEPUTY_OPT_MANAGER}
-                    value=${periodTo}
-                    onChange=${(ev) => setPeriodTo(ev.target.value)}
-                  />
-                </div>
-              </div>
+              ${showPeriod
+                ? html`
+                    <div class="row" style=${{ gap: "0.75rem" }}>
+                      <div class="field" style=${{ flex: "1 1 140px" }}>
+                        <label for="dep-from">Periods no (obligāti)</label>
+                        <input
+                          id="dep-from"
+                          type="date"
+                          class="input"
+                          required
+                          value=${periodFrom}
+                          onChange=${(ev) => setPeriodFrom(ev.target.value)}
+                        />
+                      </div>
+                      <div class="field" style=${{ flex: "1 1 140px" }}>
+                        <label for="dep-to">līdz (obligāti)</label>
+                        <input
+                          id="dep-to"
+                          type="date"
+                          class="input"
+                          required
+                          value=${periodTo}
+                          onChange=${(ev) => setPeriodTo(ev.target.value)}
+                        />
+                      </div>
+                    </div>
+                  `
+                : null}
               <div class="row">
                 <button type="submit" class="btn btn-primary btn-small" disabled=${busy}>
                   ${busy ? "…" : "Saglabāt"}
                 </button>
                 <button type="button" class="btn btn-ghost btn-small" disabled=${busy} onClick=${resetToManager}>
-                  Atiestatīt uz vadītāju
+                  Atgriezt izmaiņas
                 </button>
               </div>
             </form>
@@ -1303,7 +2021,7 @@
             if (!userCanApproveAbsences(profileRole ?? "employee", sessionUserId, deputyUserId)) {
               if (!cancelled)
                 setErr(
-                  "Apstiprināt drīkst tikai vadītājs, administrators vai aktuālais p.i. Ielogojies ar atbilstošu kontu."
+                  "Apstiprināt drīkst tikai vadītājs, administrators vai norādītais Prombūtnes apstiprinātājs. Ielogojies ar atbilstošu kontu."
                 );
               return;
             }
@@ -1323,7 +2041,7 @@
         }, [token, sessionUserId, deputyLoaded, deputyUserId, profileRole]);
         async function approve() {
           if (!canApprove) {
-            alert("Apstiprināt drīkst tikai vadītājs, administrators vai aktuālais p.i.");
+            alert("Apstiprināt drīkst tikai vadītājs, administrators vai Prombūtnes apstiprinātājs.");
             return;
           }
           setBusy(true);
@@ -1368,6 +2086,10 @@
               alert(error.message);
               return;
             }
+            const { error: nErr } = await supabase.functions.invoke("notify-cits-applicant", {
+              body: { p_token: token },
+            });
+            if (nErr) console.warn("[notify-cits-applicant]", nErr);
             stripCitsFromUrl();
             onDone();
           } finally {
@@ -1395,7 +2117,7 @@
                       </button>
                       ${!canApprove && !isLocalMode()
                         ? html`<p style=${{ margin: 0, fontSize: "0.82rem", color: "var(--muted)" }}>
-                            Tikai vadītājs, administrators vai p.i. var apstiprināt.
+                            Tikai vadītājs, administrators vai Prombūtnes apstiprinātājs var apstiprināt.
                           </p>`
                         : null}
                     </div>
@@ -1407,11 +2129,62 @@
         `;
       }
 
-      function AbsenceRecordsPanel({ userId, absences, types, onRefresh, approverView }) {
+      function shortUuid(id) {
+        const s = String(id || "");
+        return s.length > 10 ? `${s.slice(0, 8)}…` : s || "—";
+      }
+
+      function formatDbTs(val) {
+        if (val == null || val === "") return "—";
+        const s = String(val);
+        if (s.length >= 19 && /^\d{4}-\d{2}-\d{2}T/.test(s)) return s.replace("T", " ").slice(0, 19);
+        return s;
+      }
+
+      function absenceStatusLv(st) {
+        if (st === "pending") return "Gaida";
+        if (st === "approved") return "Apstiprināts";
+        if (st === "rejected") return "Noraidīts";
+        return st ?? "—";
+      }
+
+      function PrombutnesHistoryPanel({
+        userId,
+        absences,
+        types,
+        onRefresh,
+        approverView,
+        historyOpen,
+        onToggleHistory,
+        highlightAbsenceId,
+        onClearHighlight,
+      }) {
         const [editing, setEditing] = useState(null);
         const [delId, setDelId] = useState(null);
         const [form, setForm] = useState({ type_id: "", start_date: "", end_date: "", comment: "" });
-        const list = approverView ? absences : absences.filter((a) => a.user_id === userId);
+        const sortedList = useMemo(() => {
+          const list = approverView ? absences : absences.filter((a) => a.user_id === userId);
+          return [...list].sort((a, b) =>
+            String(b.created_at || "").localeCompare(String(a.created_at || ""))
+          );
+        }, [absences, approverView, userId]);
+        const anyActions = sortedList.some((a) => {
+          const own = String(a.user_id) === String(userId);
+          const canEdit = approverView || (own && a.status === "pending");
+          const canDelete = approverView || own;
+          return canEdit || canDelete;
+        });
+        const colCount = anyActions ? 7 : 6;
+        useEffect(() => {
+          if (!highlightAbsenceId || !historyOpen) return;
+          const h = window.requestAnimationFrame(() => {
+            document.getElementById(`hist-row-${highlightAbsenceId}`)?.scrollIntoView({
+              behavior: "smooth",
+              block: "nearest",
+            });
+          });
+          return () => window.cancelAnimationFrame(h);
+        }, [highlightAbsenceId, historyOpen, sortedList.length]);
         function openEdit(a) {
           setEditing(a.id);
           setForm({
@@ -1474,46 +2247,114 @@
         const typeOptionsEmployee = types.filter((t) => !isCitsSaskanotsTypeName(t.name));
         const typeOptionsEdit = approverView ? types : typeOptionsEmployee;
         return html`
-          <div class="list-panel">
-            ${list.length === 0
-              ? html`<p style=${{ margin: 0, color: "var(--muted)" }}>Nav ierakstu.</p>`
-              : list.map((a) => {
-                  const own = String(a.user_id) === String(userId);
-                  const canEdit = approverView || (own && a.status === "pending");
-                  const canDelete = approverView || own;
-                  return html`
-                    <div key=${a.id} class="abs-item">
-                      <div class="row" style=${{ justifyContent: "space-between" }}>
-                        <strong>${a.employee?.full_name ?? a.user_id}</strong>
-                        <span
-                          class=${`badge ${a.status === "pending" ? "badge-pending" : a.status === "approved" ? "badge-approved" : "badge-rejected"}`}
-                        >
-                          ${a.status === "pending" ? "Gaida" : a.status === "approved" ? "Apstiprināts" : "Noraidīts"}
-                        </span>
-                      </div>
-                      <div style=${{ fontSize: "0.85rem", color: "var(--muted)" }}>
-                        ${a.type?.name} · ${a.start_date} — ${a.end_date}
-                      </div>
-                      ${a.comment ? html`<p style=${{ margin: "0.35rem 0 0", fontSize: "0.88rem" }}>${a.comment}</p>` : null}
-                      <div class="row" style=${{ marginTop: "0.5rem", gap: "0.35rem" }}>
-                        ${canEdit
-                          ? html`
-                              <button type="button" class="btn btn-small btn-ghost" onClick=${() => openEdit(a)}>
-                                Labot
-                              </button>
-                            `
-                          : null}
-                        ${canDelete
-                          ? html`
-                              <button type="button" class="btn btn-small btn-danger" onClick=${() => setDelId(a.id)}>
-                                Dzēst
-                              </button>
-                            `
-                          : null}
-                      </div>
-                    </div>
-                  `;
-                })}
+          <div class="list-panel" id="prombutnes-history-anchor">
+            <div
+              class="row"
+              style=${{ justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "0.5rem" }}
+            >
+              <h2 style=${{ margin: 0, fontSize: "1rem" }}>Prombūtnes vēsture</h2>
+              <div class="row" style=${{ gap: "0.35rem", flexWrap: "wrap" }}>
+                ${highlightAbsenceId
+                  ? html`
+                      <button type="button" class="btn btn-ghost btn-small" onClick=${onClearHighlight}>
+                        Notīrīt atlasi
+                      </button>
+                    `
+                  : null}
+                <button type="button" class="btn btn-primary btn-small" onClick=${onToggleHistory}>
+                  ${historyOpen ? "Slēpt ierakstus (tikai galvenes)" : "Rādīt ierakstus"}
+                </button>
+              </div>
+            </div>
+            <p style=${{ margin: "0.35rem 0 0.65rem", fontSize: "0.78rem", color: "var(--muted)", lineHeight: 1.4 }}>
+              Kolonnas atbilst <code>public.prombutnes_dati</code> (ierakstu rindas var paslēpt — redzamas paliek
+              tabulas galvenes).
+            </p>
+            <div class="hist-table-wrap table-wrap">
+              <table class="hist-table">
+                <thead>
+                  <tr>
+                    <th>Vārds, uzvārds</th>
+                    <th>Prombūtnes veids</th>
+                    <th>Sākuma datums</th>
+                    <th>Beigu datums</th>
+                    <th>Komentārs</th>
+                    <th>Status</th>
+                    ${anyActions ? html`<th>—</th>` : null}
+                  </tr>
+                </thead>
+                ${historyOpen && sortedList.length
+                  ? html`
+                      <tbody>
+                        ${sortedList.map((a) => {
+                          const own = String(a.user_id) === String(userId);
+                          const canEdit = approverView || (own && a.status === "pending");
+                          const canDelete = approverView || own;
+                          const userFull = userDisplayName(a.employee);
+                          const userParts = String(userFull).split(/\s+/).filter(Boolean);
+                          const userShown =
+                            userFull === "—"
+                              ? "—"
+                              : userParts.length <= 2
+                                ? userFull
+                                : `${userParts[0]} ${userParts[userParts.length - 1]}`;
+                          const hi = highlightAbsenceId && String(highlightAbsenceId) === String(a.id);
+                          return html`
+                            <tr
+                              key=${a.id}
+                              id=${`hist-row-${a.id}`}
+                              class=${hi ? "hist-row-highlight" : ""}
+                            >
+                              <td>${userShown}</td>
+                              <td>${a.type?.name ?? a.type_id ?? "—"}</td>
+                              <td>${a.start_date ?? "—"}</td>
+                              <td>${a.end_date ?? "—"}</td>
+                              <td style=${{ maxWidth: "140px", wordBreak: "break-word" }}>${a.comment ?? "—"}</td>
+                              <td>
+                                <span
+                                  class=${`badge ${a.status === "pending" ? "badge-pending" : a.status === "approved" ? "badge-approved" : "badge-rejected"}`}
+                                >
+                                  ${absenceStatusLv(a.status)}
+                                </span>
+                              </td>
+                              ${anyActions
+                                ? html`
+                                    <td>
+                                      <div class="row" style=${{ flexDirection: "column", gap: "0.25rem", alignItems: "stretch" }}>
+                                        ${canEdit
+                                          ? html`
+                                              <button type="button" class="btn btn-ghost btn-small" onClick=${() => openEdit(a)}>
+                                                Labot
+                                              </button>
+                                            `
+                                          : null}
+                                        ${canDelete
+                                          ? html`
+                                              <button type="button" class="btn btn-danger btn-small" onClick=${() => setDelId(a.id)}>
+                                                Dzēst
+                                              </button>
+                                            `
+                                          : null}
+                                      </div>
+                                    </td>
+                                  `
+                                : null}
+                            </tr>
+                          `;
+                        })}
+                      </tbody>
+                    `
+                  : historyOpen
+                    ? html`
+                        <tbody>
+                          <tr>
+                            <td colspan=${colCount} style=${{ color: "var(--muted)", fontStyle: "italic" }}>Nav ierakstu.</td>
+                          </tr>
+                        </tbody>
+                      `
+                    : null}
+              </table>
+            </div>
             ${editing
               ? html`
                   <div
@@ -1621,128 +2462,7 @@
         `;
       }
 
-      function ManagerApprovals({ currentUserId, onChanged }) {
-        const [pending, setPending] = useState([]);
-        const [busyId, setBusyId] = useState(null);
-        async function load() {
-          if (isLocalMode()) {
-            const types = getLocalTypes();
-            const tmap = new Map(types.map((t) => [t.id, t]));
-            const list = getLocalAbsences()
-              .filter((r) => r.status === "pending")
-              .map((r) => ({
-                ...r,
-                type: tmap.get(r.type_id) ?? null,
-                employee: { id: r.user_id, full_name: localDisplayName() },
-              }))
-              .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
-            setPending(list);
-            return;
-          }
-          const { data: rows, error } = await supabase
-            .from("prombutnes_dati")
-            .select("*, type:prombutnes_veidi(*)")
-            .eq("status", "pending")
-            .order("created_at", { ascending: false });
-          if (error) {
-            console.error(error);
-            return;
-          }
-          const { data: profs } = await supabase.from("users").select("id, full_name");
-          const pmap = new Map((profs ?? []).map((p) => [p.id, p]));
-          const list = (rows ?? []).map((r) => ({
-            ...r,
-            type: r.type,
-            employee: pmap.get(r.user_id) ?? null,
-          }));
-          setPending(list);
-        }
-        useEffect(() => {
-          void load();
-        }, []);
-        async function settle(id, status) {
-          setBusyId(id);
-          try {
-            if (isLocalMode()) {
-              const rows = getLocalAbsences().map((r) =>
-                r.id === id
-                  ? {
-                      ...r,
-                      status,
-                      approved_by: currentUserId,
-                      approved_at: new Date().toISOString(),
-                    }
-                  : r
-              );
-              setLocalAbsences(rows);
-            } else {
-              const { error } = await supabase
-                .from("prombutnes_dati")
-                .update({
-                  status,
-                  approved_by: currentUserId,
-                  approved_at: new Date().toISOString(),
-                })
-                .eq("id", id);
-              if (error) {
-                alert(error.message);
-                return;
-              }
-            }
-            await load();
-            onChanged();
-          } finally {
-            setBusyId(null);
-          }
-        }
-        if (pending.length === 0) {
-          return html`
-            <div class="list-panel">
-              <h2>Gaidošie akcepti</h2>
-              <p style=${{ margin: 0, color: "var(--muted)" }}>Nav gaidošu iesniegumu.</p>
-            </div>
-          `;
-        }
-        return html`
-          <div class="list-panel">
-            <h2>Gaidošie akcepti</h2>
-            ${pending.map(
-              (a) => html`
-                <div key=${a.id} class="abs-item">
-                  <div class="row" style=${{ justifyContent: "space-between", marginBottom: "0.35rem" }}>
-                    <strong>${a.employee?.full_name ?? a.user_id}</strong>
-                    <span class="badge badge-pending">Gaida</span>
-                  </div>
-                  <div style=${{ fontSize: "0.85rem", color: "var(--muted)" }}>
-                    ${a.type?.name} · ${a.start_date} — ${a.end_date}
-                  </div>
-                  ${a.comment ? html`<p style=${{ margin: "0.35rem 0 0", fontSize: "0.88rem" }}>${a.comment}</p>` : null}
-                  <div class="row" style=${{ marginTop: "0.55rem" }}>
-                    <button
-                      type="button"
-                      class="btn btn-small btn-primary"
-                      disabled=${busyId === a.id}
-                      onClick=${() => settle(a.id, "approved")}
-                    >
-                      Apstiprināt
-                    </button>
-                    <button
-                      type="button"
-                      class="btn btn-small btn-danger"
-                      disabled=${busyId === a.id}
-                      onClick=${() => settle(a.id, "rejected")}
-                    >
-                      Noraidīt
-                    </button>
-                  </div>
-                </div>
-              `
-            )}
-          </div>
-        `;
-      }
-
-      function PrombutnesSection({ userId, role, onBack }) {
+      function PrombutnesSection({ userId, role, promSub, setPromSub }) {
         const [month, setMonth] = useState(() => new Date());
         const [absences, setAbsences] = useState([]);
         const [typesList, setTypesList] = useState([]);
@@ -1751,6 +2471,8 @@
         const [deputyValidFrom, setDeputyValidFrom] = useState(null);
         const [deputyValidTo, setDeputyValidTo] = useState(null);
         const [error, setError] = useState(null);
+        const [historyOpen, setHistoryOpen] = useState(false);
+        const [highlightAbsenceId, setHighlightAbsenceId] = useState(null);
         useEffect(() => {
           if (isLocalMode()) {
             setTypesList(getLocalTypes());
@@ -1767,11 +2489,17 @@
         }, []);
         const loadTeamAndDeputy = useCallback(async () => {
           if (isLocalMode()) {
+            const ln = localDisplayName();
             setTeamUsers([
               {
                 id: LOCAL_USER_ID,
-                full_name: localDisplayName(),
+                full_name: ln,
+                [COL_USER_NAME]: ln,
+                [COL_USER_IMAIL]: "demo@local",
+                [COL_USER_AMATS]: "",
                 email: "demo@local",
+                role: "employee",
+                created_at: new Date().toISOString(),
               },
             ]);
             setDeputyUserId(localStorage.getItem(LS_LOCAL_DEPUTY_USER_ID) || null);
@@ -1779,10 +2507,12 @@
             setDeputyValidTo(localStorage.getItem(LS_LOCAL_DEPUTY_TO) || null);
             return;
           }
+          const { error: rpcErr } = await supabase.rpc("pdd_cleanup_expired_deputy");
+          if (rpcErr) console.warn("[pdd_cleanup_expired_deputy]", rpcErr);
           const { data: urows, error: uErr } = await supabase
             .from("users")
-            .select("id, full_name, email")
-            .order("full_name", { ascending: true });
+            .select("*")
+            .order(COL_USER_NAME, { ascending: true });
           if (uErr) console.error(uErr);
           setTeamUsers(urows ?? []);
           const { data: drow, error: dErr } = await supabase
@@ -1808,18 +2538,29 @@
         );
         const deputyDisplayName = useMemo(() => {
           if (!deputyEffectiveId || !teamUsers.length) return null;
-          return teamUsers.find((u) => String(u.id) === String(deputyEffectiveId))?.full_name ?? null;
+          const u = teamUsers.find((x) => String(x.id) === String(deputyEffectiveId));
+          const n = userDisplayName(u);
+          return n !== "—" ? n : null;
         }, [deputyEffectiveId, teamUsers]);
         const refresh = useCallback(async () => {
           setError(null);
           if (isLocalMode()) {
             const types = getLocalTypes();
             const tmap = new Map(types.map((t) => [t.id, t]));
+            const ln2 = localDisplayName();
+            const userStub = (uid) => ({
+              id: uid,
+              full_name: ln2,
+              [COL_USER_NAME]: ln2,
+              [COL_USER_IMAIL]: "demo@local",
+              [COL_USER_AMATS]: "",
+            });
             const list = getLocalAbsences()
               .map((r) => ({
                 ...r,
                 type: tmap.get(r.type_id) ?? null,
-                employee: { id: r.user_id, full_name: localDisplayName() },
+                employee: userStub(r.user_id),
+                approver_user: r.approved_by ? userStub(r.approved_by) : null,
               }))
               .sort((a, b) => a.start_date.localeCompare(b.start_date));
             setAbsences(list);
@@ -1833,41 +2574,71 @@
             setError(qErr.message);
             return;
           }
-          const { data: profs, error: pErr } = await supabase.from("users").select("id, full_name");
+          const { data: profs, error: pErr } = await supabase.from("users").select("*");
           if (pErr) setError(pErr.message);
           const pmap = new Map((profs ?? []).map((p) => [p.id, p]));
           const list = (rows ?? []).map((r) => ({
             ...r,
             type: r.type,
             employee: pmap.get(r.user_id) ?? null,
+            approver_user: r.approved_by ? pmap.get(r.approved_by) ?? null : null,
           }));
           setAbsences(list);
         }, []);
         useEffect(() => {
           void refresh();
         }, [refresh]);
+        const reloadUsersAndViews = useCallback(async () => {
+          await loadTeamAndDeputy();
+          await refresh();
+        }, [loadTeamAndDeputy, refresh]);
+        useEffect(() => {
+          if (isLocalMode() || !supabase) return undefined;
+          const bump = () => {
+            void loadTeamAndDeputy();
+            void refresh();
+          };
+          const ch = supabase
+            .channel("pdd-prombutnes-live")
+            .on("postgres_changes", { event: "*", schema: "public", table: "prombutnes_dati" }, bump)
+            .on("postgres_changes", { event: "*", schema: "public", table: "users" }, bump)
+            .on("postgres_changes", { event: "*", schema: "public", table: "pdd_deputy_state" }, bump)
+            .on("postgres_changes", { event: "*", schema: "public", table: "pdd_cits_requests" }, bump)
+            .subscribe();
+          return () => {
+            void supabase.removeChannel(ch);
+          };
+        }, [loadTeamAndDeputy, refresh]);
         const isManager = role === "manager" || role === "admin";
         const canApprove = userCanApproveAbsences(role, userId, deputyEffectiveId);
+        useEffect(() => {
+          if (promSub === "deputy" && !isManager) setPromSub("calendar");
+        }, [promSub, isManager, setPromSub]);
+        const promSubLabel =
+          promSub === "calendar"
+            ? "Kalendārs un Prombūtnes vēsture"
+            : promSub === "request"
+              ? "Prombūtnes pieteikums"
+              : promSub === "teamUsers"
+                ? "Komandas lietotāji"
+                : "Apstiprinātāja maiņa";
         return html`
           <section class="stack" style=${{ gap: "1.25rem" }}>
-            <div class="row" style=${{ justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                <h2 style=${{ margin: 0, fontSize: "1.15rem" }}>Prombūtnes</h2>
-                <p class="app-sub" style=${{ margin: "0.25rem 0 0" }}>Kalendārs un saskaņošana.</p>
-              </div>
-              <button type="button" class="btn btn-ghost" onClick=${onBack}>← Atpakaļ uz moduļiem</button>
+            <div>
+              <h2 style=${{ margin: 0, fontSize: "1.15rem" }}>Prombūtnes</h2>
+              <p class="app-sub" style=${{ margin: "0.25rem 0 0" }}>${promSubLabel}</p>
             </div>
             ${deputyEffectiveId
               ? html`
                   <div class="banner-deputy" role="status">
-                    <strong>Uzmanību:</strong> šobrīd aktīvs p.i. ir
+                    <strong>Uzmanību:</strong> šobrīd aktīvs Prombūtnes apstiprinātājs ir
                     <strong> ${deputyDisplayName ?? "izvēlēta persona"}</strong>.
                     ${deputyValidFrom || deputyValidTo
                       ? html`<span>
                           Periods: <strong>${deputyValidFrom ?? "—"}</strong> — <strong>${deputyValidTo ?? "—"}</strong>.
                         </span>`
                       : null}
-                    Apstiprinājumi un „Cits (ar saskaņojumu)” uz <strong>${notifyEmail}</strong>.
+                    „Cits (ar saskaņojumu)” saskaņošanas e-pasts: <strong>${notifyEmail}</strong>.
                   </div>
                 `
               : null}
@@ -1876,41 +2647,66 @@
                   <div class="banner-warn" role="alert">Kļūda: ${error}</div>
                 `
               : null}
-            <${TeamUsersList} users=${teamUsers} />
-            <div class="prombutnes-grid">
-              <${AbsenceCalendar}
-                month=${month}
-                onMonthChange=${setMonth}
-                absences=${absences}
-                caption="Komandas kalendārs: redzami visu lietotāju ieraksti. Uz krāsainā lauka novieto kursoru, lai redzētu vārdu, veidu, statusu un komentāru."
-              />
-              <div class="stack" style=${{ gap: "0.85rem" }}>
-                <${AbsenceRequestForm}
-                  userId=${userId}
-                  role=${role}
-                  onCreated=${() => void refresh()}
-                  notifyEmail=${notifyEmail}
-                />
-                ${isManager
-                  ? html`<${DeputyDelegePanel}
-                      teamUsers=${teamUsers}
-                      deputyUserId=${deputyUserId}
-                      deputyValidFrom=${deputyValidFrom}
-                      deputyValidTo=${deputyValidTo}
-                      onDeputyChange=${loadTeamAndDeputy}
-                      currentUserId=${userId}
-                    />`
-                  : null}
-              </div>
-            </div>
-            ${canApprove ? html`<${ManagerApprovals} currentUserId=${userId} onChanged=${() => void refresh()} />` : null}
-            <${AbsenceRecordsPanel}
-              userId=${userId}
-              absences=${absences}
-              types=${typesList}
-              onRefresh=${refresh}
-              approverView=${canApprove}
-            />
+            ${promSub === "calendar"
+              ? html`
+                  <div class="stack" style=${{ gap: "1rem" }}>
+                    <${AbsenceCalendar}
+                      month=${month}
+                      onMonthChange=${setMonth}
+                      absences=${absences}
+                      caption="Komandas kalendārs. Parastie veidi reģistrējas uzreiz kā apstiprināti; „Cits (ar saskaņojumu)” — pēc e-pasta apstiprinājuma. Spied uz krāsainās iezīmes, lai atvērtu rindu tabulā zemāk."
+                      onPickAbsence=${(a) => {
+                        setPromSub("calendar");
+                        setHistoryOpen(true);
+                        setHighlightAbsenceId(a.id);
+                      }}
+                    />
+                    <${PrombutnesHistoryPanel}
+                      userId=${userId}
+                      absences=${absences}
+                      types=${typesList}
+                      onRefresh=${refresh}
+                      approverView=${canApprove}
+                      historyOpen=${historyOpen}
+                      onToggleHistory=${() => setHistoryOpen((o) => !o)}
+                      highlightAbsenceId=${highlightAbsenceId}
+                      onClearHighlight=${() => setHighlightAbsenceId(null)}
+                    />
+                  </div>
+                `
+              : null}
+            ${promSub === "request"
+              ? html`
+                  <${AbsenceRequestForm}
+                    userId=${userId}
+                    role=${role}
+                    onCreated=${() => void refresh()}
+                    notifyEmail=${notifyEmail}
+                  />
+                `
+              : null}
+            ${promSub === "deputy" && isManager
+              ? html`
+                  <${DeputyDelegePanel}
+                    teamUsers=${teamUsers}
+                    deputyUserId=${deputyUserId}
+                    deputyValidFrom=${deputyValidFrom}
+                    deputyValidTo=${deputyValidTo}
+                    onDeputyChange=${reloadUsersAndViews}
+                    currentUserId=${userId}
+                  />
+                `
+              : null}
+            ${promSub === "teamUsers"
+              ? html`
+                  <${TeamUsersDirectory}
+                    users=${teamUsers}
+                    canAdmin=${isManager && !isLocalMode()}
+                    currentUserId=${userId}
+                    onReload=${reloadUsersAndViews}
+                  />
+                `
+              : null}
           </section>
         `;
       }
@@ -1919,6 +2715,8 @@
         const { session, loading } = useSession();
         const { profile, loading: profileLoading } = useProfile(session?.user?.id);
         const [view, setView] = useState("home");
+        const [promSub, setPromSub] = useState("calendar");
+        const showPromDeputyTab = profile?.role === "manager" || profile?.role === "admin";
         const [citsToken, setCitsToken] = useState(() => readCitsTokenFromUrl());
         const title = useMemo(
           () => html`
@@ -1970,7 +2768,7 @@
                   ${title}
                   <div class="banner-warn" role="alert" style=${{ marginBottom: "1rem", fontSize: "0.9rem" }}>
                     Lai apstiprinātu „Cits (ar saskaņojumu)”, ielogojies. Apstiprināt drīkst tikai vadītājs,
-                    administrators vai aktuālais p.i.
+                    administrators vai Prombūtnes apstiprinātājs.
                   </div>
                   <${AuthScreen} />
                 </div>
@@ -2059,31 +2857,45 @@
         }
 
         return html`
-          <div class="app-shell">
-            <header class="app-header">
-              ${title}
-              ${TIKAI_VIENKARSI_SKATS
-                ? html`<span style=${{ color: "var(--muted)", fontSize: "0.9rem" }}>Vietējā kopija — dati tikai šajā pārlūkā</span>`
-                : html`
-                    <div class="row">
-                      <span style=${{ color: "var(--muted)", fontSize: "0.9rem" }}>
-                        ${profile?.full_name ?? session.user.email}
-                        ${profile?.role === "manager" || profile?.role === "admin" ? " · vadītājs" : ""}
-                      </span>
-                      <button type="button" class="btn btn-ghost btn-small" onClick=${signOut}>Iziet</button>
-                    </div>
-                  `}
-            </header>
+          <${AppShellWithNav}
+            view=${view}
+            onChangeView=${(v) => {
+              setView(v);
+              if (v === "prombutnes") setPromSub("calendar");
+            }}
+            promSub=${promSub}
+            onPromSubChange=${setPromSub}
+            showPromDeputyTab=${showPromDeputyTab}
+            header=${html`
+              <header class="app-header">
+                ${title}
+                ${TIKAI_VIENKARSI_SKATS
+                  ? html`<span style=${{ color: "var(--muted)", fontSize: "0.9rem" }}>Vietējā kopija — dati tikai šajā pārlūkā</span>`
+                  : html`
+                      <div class="row">
+                        <span style=${{ color: "var(--muted)", fontSize: "0.9rem" }}>
+                          ${userDisplayName(profile) !== "—" ? userDisplayName(profile) : session.user.email}
+                        </span>
+                        <button type="button" class="btn btn-ghost btn-small" onClick=${signOut}>Iziet</button>
+                      </div>
+                    `}
+              </header>
+            `}
+          >
             ${view === "home"
-              ? html`<${Dashboard} onOpenPrombutnes=${() => setView("prombutnes")} />`
-              : html`
-                  <${PrombutnesSection}
-                    userId=${session.user.id}
-                    role=${profile?.role ?? "employee"}
-                    onBack=${() => setView("home")}
-                  />
-                `}
-          </div>
+              ? html`<${Dashboard}
+                  onOpenPrombutnes=${() => {
+                    setView("prombutnes");
+                    setPromSub("calendar");
+                  }}
+                />`
+              : html`<${PrombutnesSection}
+                  userId=${session.user.id}
+                  role=${profile?.role ?? "employee"}
+                  promSub=${promSub}
+                  setPromSub=${setPromSub}
+                />`}
+          </${AppShellWithNav}>
         `;
       }
 
