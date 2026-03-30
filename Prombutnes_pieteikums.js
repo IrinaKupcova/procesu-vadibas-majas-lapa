@@ -4,14 +4,18 @@ useEffect(() => {
     async function loadUsers() {
       if (isLocalMode()) {
         setUsers([
-          { id: "1", full_name: localDisplayName() }
+          {
+            id: "1",
+            full_name: localDisplayName(),
+            email: "demo@local",
+            role: "employee",
+            created_at: new Date().toISOString(),
+          },
         ]);
         return;
       }
   
-      const { data, error } = await supabase
-        .from("users")
-        .select("id, full_name");
+      const { data, error } = await supabase.from("users").select("*").order("full_name", { ascending: true });
   
       if (error) {
         console.error(error);

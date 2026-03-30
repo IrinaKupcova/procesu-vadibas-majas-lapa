@@ -8,7 +8,7 @@ export async function fetchAbsenceFormUsers(supabaseClient, options) {
 
   const r = await supabaseClient
     .from("users")
-    .select("id, full_name, email")
+    .select("*")
     .order("full_name", { ascending: true });
   if (r.error) {
     console.error(r.error);

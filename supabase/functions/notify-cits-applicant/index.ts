@@ -1,6 +1,5 @@
-// Deno uz Supabase Edge Functions. Nosūta e-pastu ar saiti uz lapu (tokens).
-// Secrets: RESEND_API_KEY, RESEND_FROM (piem. "PDD <prombutnes@jusu-domena.lv>")
-// Supabase automātiski pievieno SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
+// Pēc „Cits (ar saskaņojumu)” apstiprināšanas — e-pasts pieteicējam (public.users.email).
+// Secrets: RESEND_API_KEY, RESEND_FROM (kā notify-cits-manager)
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
@@ -8,6 +7,26 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+function todayIsoDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// deno-lint-ignore no-explicit-any
+async function callerCanApprove(admin: any, authUid: string): Promise<boolean> {
+  const { data: u } = await admin.from("users").select("role").eq("id", authUid).maybeSingle();
+  if (u?.role === "manager" || u?.role === "admin") return true;
+  const { data: d } = await admin
+    .from("pdd_deputy_state")
+    .select("deputy_user_id, deputy_valid_from, deputy_valid_to")
+    .eq("id", 1)
+    .maybeSingle();
+  if (!d?.deputy_user_id || d.deputy_user_id !== authUid) return false;
+  const t = todayIsoDate();
+  if (d.deputy_valid_from && t < String(d.deputy_valid_from)) return false;
+  if (d.deputy_valid_to && t > String(d.deputy_valid_to)) return false;
+  return true;
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -23,9 +42,9 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { request_id, app_base_url } = await req.json();
-    if (!request_id || typeof app_base_url !== "string") {
-      return new Response(JSON.stringify({ error: "Trūkst request_id vai app_base_url" }), {
+    const { p_token } = await req.json();
+    if (!p_token || typeof p_token !== "string") {
+      return new Response(JSON.stringify({ error: "Trūkst p_token" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -47,10 +66,17 @@ Deno.serve(async (req) => {
     }
 
     const admin = createClient(supabaseUrl, serviceKey);
+    if (!(await callerCanApprove(admin, userData.user.id))) {
+      return new Response(JSON.stringify({ error: "Tikai vadītājs vai apstiprinātājs drīkst sūtīt šo paziņojumu" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const { data: row, error: rowErr } = await admin
       .from("pdd_cits_requests")
-      .select("id, user_id, start_date, end_date, comment, notify_email, approval_token, status")
-      .eq("id", request_id)
+      .select("id, user_id, start_date, end_date, comment, status")
+      .eq("approval_token", p_token)
       .maybeSingle();
 
     if (rowErr || !row) {
@@ -60,15 +86,8 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (row.user_id !== userData.user.id) {
-      return new Response(JSON.stringify({ error: "Pieeja liegta" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (row.status !== "pending_manager") {
-      return new Response(JSON.stringify({ error: "Jau apstrādāts" }), {
+    if (row.status !== "approved") {
+      return new Response(JSON.stringify({ error: "Pieteikums vēl nav apstiprināts" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -79,14 +98,18 @@ Deno.serve(async (req) => {
       .select('full_name, email, "i-mail", "Vārds uzvārds"')
       .eq("id", row.user_id)
       .maybeSingle();
+
     const p = prof as Record<string, unknown> | null;
-    const employee =
-      String(p?.["Vārds uzvārds"] ?? p?.full_name ?? userData.user.email ?? row.user_id).trim() || row.user_id;
+    const toEmail = String(p?.email ?? p?.["i-mail"] ?? "")
+      .trim();
+    if (!toEmail || !toEmail.includes("@")) {
+      return new Response(
+        JSON.stringify({ ok: false, skipped: true, message: "Pieteicējam nav e-pasta (email vai i-mail)" }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
-    const base = app_base_url.replace(/\/$/, "");
-    const sep = base.includes("?") ? "&" : "?";
-    const link = `${base}${sep}cits=${row.approval_token}`;
-
+    const employee = String(p?.["Vārds uzvārds"] ?? p?.full_name ?? toEmail).trim() || toEmail;
     const resendKey = Deno.env.get("RESEND_API_KEY");
     const from = Deno.env.get("RESEND_FROM") ?? "PDD <onboarding@resend.dev>";
 
@@ -95,21 +118,18 @@ Deno.serve(async (req) => {
         JSON.stringify({
           ok: false,
           skipped: true,
-          message:
-            "RESEND_API_KEY nav iestatīts Edge Function — e-pasts netika nosūtīts. Saite: " + link,
-          link,
+          message: "RESEND_API_KEY nav iestatīts — pieteicējam netika nosūtīts e-pasts.",
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
     const html = `
-      <p>Sveiki,</p>
-      <p><strong>${employee}</strong> pieprasa prombūtni ar veidu <strong>Cits (ar saskaņojumu)</strong>.</p>
+      <p>Sveiki, <strong>${employee}</strong>,</p>
+      <p>Jūsu prombūtnes pieprasījums ar veidu <strong>Cits (ar saskaņojumu)</strong> ir <strong>apstiprināts</strong>.</p>
       <p>Periods: <strong>${row.start_date}</strong> — <strong>${row.end_date}</strong></p>
       ${row.comment ? `<p>Komentārs: ${String(row.comment).replace(/</g, "&lt;")}</p>` : ""}
-      <p><a href="${link}">Atvērt apstiprināšanu PDD lapā</a></p>
-      <p>Ja saite nedarbojas, ielīmē pārlūkā:<br/><code>${link}</code></p>
+      <p>Ar cieņu,<br/>PDD</p>
     `;
 
     const r = await fetch("https://api.resend.com/emails", {
@@ -120,8 +140,8 @@ Deno.serve(async (req) => {
       },
       body: JSON.stringify({
         from,
-        to: [row.notify_email],
-        subject: `PDD: Cits (ar saskaņojumu) — ${employee} (${row.start_date}–${row.end_date})`,
+        to: [toEmail],
+        subject: `PDD: apstiprināts — Cits (ar saskaņojumu) (${row.start_date}–${row.end_date})`,
         html,
       }),
     });
@@ -134,7 +154,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    return new Response(JSON.stringify({ ok: true, link }), {
+    return new Response(JSON.stringify({ ok: true }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
