@@ -456,6 +456,15 @@
         };
       }
 
+      function normalizeAbsenceTypeRecord(t) {
+        const name = String(t?.name ?? t?.type ?? "").trim();
+        return {
+          ...t,
+          name,
+          type: name,
+        };
+      }
+
       /** true: "tikai demo" (nav Supabase). false: Supabase (Realtime sinhronizācija ar DB). */
       const TIKAI_VIENKARSI_SKATS = false;
 
@@ -1323,7 +1332,7 @@
             .order("sort_order", { ascending: true })
             .then(({ data, error }) => {
               if (error) console.error(error);
-              setTypes(data ?? []);
+              setTypes((data ?? []).map(normalizeAbsenceTypeRecord));
             });
         }, []);
         useEffect(() => {
@@ -3404,7 +3413,7 @@
             .order("sort_order", { ascending: true })
             .then(({ data, error }) => {
               if (error) console.error(error);
-              setTypesList(data ?? []);
+              setTypesList((data ?? []).map(normalizeAbsenceTypeRecord));
             });
         }, []);
         const loadTeamAndDeputy = useCallback(async () => {
@@ -3499,7 +3508,7 @@
           const pmap = new Map((profs ?? []).map((p) => [p.id, p]));
           const list = (rows ?? []).map((r) => ({
             ...r,
-            type: r.type,
+            type: r.type ? normalizeAbsenceTypeRecord(r.type) : null,
             employee: pmap.get(r.user_id) ?? null,
             approver_user: r.approved_by ? pmap.get(r.approved_by) ?? null : null,
           }));
