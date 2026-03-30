@@ -664,7 +664,6 @@
       }
 
       function isLocalMode() {
-        if (ADMIN_AUTO_ENTER && sessionStorage.getItem(LS_LOCAL_OK) === "1") return true;
         return !configured();
       }
 
@@ -823,9 +822,6 @@
         const [session, setSession] = useState(null);
         const [loading, setLoading] = useState(true);
         useEffect(() => {
-          if (ADMIN_AUTO_ENTER) {
-            ensureLocalAdminSession();
-          }
           if (TIKAI_VIENKARSI_SKATS) {
             ensureLocalAdminSession();
             const uid = sessionStorage.getItem(LS_LOCAL_USER_ID) || LOCAL_USER_ID;
