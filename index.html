@@ -426,7 +426,7 @@
       function userImail(u) {
         if (!u) return "";
         // Supabase migrācijās `i-mail` bieži ir sinhronizēta no `email`, bet UI rādām kā e-pasts.
-        const e = u.email ?? u[COL_USER_IMAIL];
+        const e = u.email ?? u[COL_USER_IMAIL] ?? u["e-mail"] ?? u["e-pasts"];
         const s = e && String(e).trim();
         return s && s.includes("@") ? s : "";
       }
@@ -440,7 +440,7 @@
           u?.[COL_USER_NAME] ?? u?.full_name ?? u?.["Vārds uzvārds"] ?? u?.["Vārds, uzvārds"] ?? ""
         ).trim();
         const email = String(
-          u?.email ?? u?.[COL_USER_IMAIL] ?? u?.["e-pasts"] ?? u?.["e-mail"] ?? u?.["i-mail"] ?? ""
+          u?.email ?? u?.[COL_USER_IMAIL] ?? u?.["e-mail"] ?? u?.["e-pasts"] ?? u?.["i-mail"] ?? ""
         ).trim();
         const amats = String(u?.[COL_USER_AMATS] ?? u?.Amats ?? u?.amats ?? "").trim();
         return {
@@ -449,6 +449,7 @@
           [COL_USER_NAME]: name,
           full_name: name || null,
           [COL_USER_IMAIL]: email || null,
+          ["e-mail"]: email || null,
           email: email || null,
           [COL_USER_AMATS]: amats || null,
           role: normalizeUserRole(u?.role),
@@ -1005,7 +1006,8 @@
             }
             const list = Array.isArray(data) ? data : [];
             const user =
-              list.find((u) => String(u?.email ?? u?.["i-mail"] ?? "").trim().toLowerCase() === entered) ?? null;
+              list.find((u) => String(u?.email ?? u?.["i-mail"] ?? u?.["e-mail"] ?? "").trim().toLowerCase() === entered) ??
+              null;
             if (!user) {
               setMessage("Šis e-pasts nav atrasts Komandas tabulā.");
               return;
@@ -1795,6 +1797,7 @@
         return {
           [COL_USER_NAME]: v || null,
           [COL_USER_IMAIL]: i || null,
+          ["e-mail"]: i || null,
           [COL_USER_AMATS]: a || null,
           role: normalizeUserRole(role),
           full_name: v || null,
