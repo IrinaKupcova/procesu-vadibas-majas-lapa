@@ -521,12 +521,18 @@
       }
 
       function isCitsSaskanotsTypeName(name) {
-        const n = String(name || "");
+        const raw = String(name || "");
+        const n = raw
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "");
+        // Elastīga atpazīšana: jebkurš "cits" + "saskan..." nosaukums iet caur saskaņošanu.
+        if (n.includes("cits") && n.includes("saskan")) return true;
         return (
-          /cits\s*\(\s*saskaņots\s*\)/i.test(n) ||
-          /cits\s*\(\s*vajag\s+vadītāja\s+saskaņojumu\s*\)/i.test(n) ||
-          /cits\s*\(\s*ar\s+saskaņošanu\s*\)/i.test(n) ||
-          /cits\s*\(\s*ar\s+saskaņojumu\s*\)/i.test(n)
+          /cits\s*\(\s*saka?nots\s*\)/i.test(n) ||
+          /cits\s*\(\s*vajag\s+vaditaja\s+sakanojumu\s*\)/i.test(n) ||
+          /cits\s*\(\s*ar\s+sakanu?osanu\s*\)/i.test(n) ||
+          /cits\s*\(\s*ar\s+sakanojumu\s*\)/i.test(n)
         );
       }
 
@@ -683,7 +689,19 @@
 
       function getLocalTypes() {
         ensureLocalTypes();
-        return JSON.parse(localStorage.getItem(LS_TYPES) || "[]");
+        const rows = JSON.parse(localStorage.getItem(LS_TYPES) || "[]");
+        if (!Array.isArray(rows)) return [];
+        const normalized = rows.map((t) => {
+          const n = String(t?.name ?? "");
+          if (/^cits\s*\(\s*saskaņots\s*\)$/i.test(n)) {
+            return { ...t, name: "Cits (ar vadītāja saskaņojumu)" };
+          }
+          return t;
+        });
+        if (JSON.stringify(normalized) !== JSON.stringify(rows)) {
+          localStorage.setItem(LS_TYPES, JSON.stringify(normalized));
+        }
+        return normalized;
       }
 
       function getLocalAbsences() {
@@ -1698,7 +1716,7 @@
                                 return html`
                                   <tr key=${r.id}>
                                     <td>${emp ? userDisplayName(emp) : r.user_id}</td>
-                                    <td>${r.start_date} — ${r.end_date}</td>
+                                    <td>${formatDateLv(r.start_date)} — ${formatDateLv(r.end_date)}</td>
                                     <td>
                                       <span class=${`badge ${pending ? "badge-pending" : r.status === "approved" ? "badge-approved" : "badge-rejected"}`}>
                                         ${status}
@@ -2662,7 +2680,7 @@
                     <div class="stack" style=${{ gap: "0.5rem" }}>
                       <p><strong>${preview.employee_name}</strong></p>
                       <p style=${{ margin: 0, fontSize: "0.9rem" }}>
-                        ${preview.start_date} — ${preview.end_date}
+                        ${formatDateLv(preview.start_date)} — ${formatDateLv(preview.end_date)}
                       </p>
                       ${preview.comment
                         ? html`<p style=${{ margin: 0 }}>${preview.comment}</p>`
@@ -2705,6 +2723,14 @@
         return s;
       }
 
+      function formatDateLv(val) {
+        const s = String(val ?? "").trim();
+        if (!s) return "—";
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+        if (m) return `${m[3]}.${m[2]}.${m[1]}`;
+        return s;
+      }
+
       function absenceStatusLv(st) {
         if (st === "pending") return "gaida";
         if (st === "approved") return "apstiprināts";
@@ -2714,6 +2740,7 @@
 
       function PrombutnesHistoryPanel({
         userId,
+        role,
         absences,
         types,
         onRefresh,
@@ -2819,10 +2846,13 @@
           setHistPage(p);
         }, [highlightAbsenceId, historyOpen, filteredList]);
 
+        const isAdmin = String(role || "").toLowerCase() === "admin";
         const anyActions = filteredList.some((a) => {
           const own = String(a.user_id) === String(userId);
-          const canEdit = approverView || (own && a.status === "pending");
-          const canDelete = approverView || (own && a.status === "pending");
+          const typeName = a.type?.name ?? a.type_id ?? "";
+          const isCitsType = isCitsSaskanotsTypeName(typeName);
+          const canEdit = isAdmin || (own && a.status === "pending" && !isCitsType);
+          const canDelete = isAdmin || (own && a.status === "pending" && !isCitsType);
           return canEdit || canDelete;
         });
         const colCount = anyActions ? 7 : 6;
@@ -3131,8 +3161,9 @@
                       <tbody>
                         ${visibleList.map((a) => {
                           const own = String(a.user_id) === String(userId);
-                          const canEdit = approverView || (own && a.status === "pending");
-                          const canDelete = approverView || (own && a.status === "pending");
+                          const isCitsType = isCitsSaskanotsTypeName(typeName);
+                          const canEdit = isAdmin || (own && a.status === "pending" && !isCitsType);
+                          const canDelete = isAdmin || (own && a.status === "pending" && !isCitsType);
                           const userFull = userDisplayName(a.employee);
                           const userParts = String(userFull).split(/\s+/).filter(Boolean);
                           const userShown =
@@ -3143,7 +3174,6 @@
                                 : `${userParts[0]} ${userParts[userParts.length - 1]}`;
                           const hi = highlightAbsenceId && String(highlightAbsenceId) === String(a.id);
                           const typeName = a.type?.name ?? a.type_id ?? "—";
-                          const isCitsType = isCitsSaskanotsTypeName(typeName);
                           const statusText = isCitsType
                             ? (a.status === "approved" ? "saskaņots" : "gaida")
                             : "bez saskaņošanas";
@@ -3158,8 +3188,8 @@
                             >
                               <td>${maybeMark(userShown, filters.name)}</td>
                               <td>${maybeMark(typeName, filters.type)}</td>
-                              <td>${maybeMark(a.start_date ?? "—", filters.start)}</td>
-                              <td>${maybeMark(a.end_date ?? "—", filters.end)}</td>
+                              <td>${maybeMark(formatDateLv(a.start_date), filters.start)}</td>
+                              <td>${maybeMark(formatDateLv(a.end_date), filters.end)}</td>
                               <td style=${{ maxWidth: "140px", wordBreak: "break-word" }}>
                                 ${maybeMark(a.comment ?? "—", filters.comment)}
                               </td>
@@ -3568,6 +3598,7 @@
               ? html`
                   <${PrombutnesHistoryPanel}
                     userId=${userId}
+                    role=${role}
                     absences=${absences}
                     types=${typesList}
                     onRefresh=${refresh}
