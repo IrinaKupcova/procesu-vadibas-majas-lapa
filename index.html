@@ -367,6 +367,9 @@
     <noscript><p style="padding:1rem;font-family:system-ui">Ieslēdz JavaScript.</p></noscript>
     <div id="root"></div>
 
+    <!-- Lokālie dati + ziņas komandai (bez Supabase/API) -->
+    <script src="./Komanda.js"></script>
+
     <script type="module">
       import React, { useState, useEffect, useCallback, useMemo } from "https://esm.sh/react@19.0.0";
       import { createRoot } from "https://esm.sh/react-dom@19.0.0/client";
@@ -422,7 +425,7 @@
       }
 
       /** true: tūlīt moduļu skats. false: tiešsaistes konts (URL+atslēga failā) vai lokālā parole. */
-      const TIKAI_VIENKARSI_SKATS = false;
+      const TIKAI_VIENKARSI_SKATS = true;
 
       // Publisko atslēgu kopē: Supabase → Project Settings → API → anon public (ne service_role).
       // Ja atslēga „pazuda” pēc rediģēšanas — ielīmē to atkal šeit (viena rinda, sākas ar eyJ…).
@@ -1464,6 +1467,12 @@
         });
         const [busy, setBusy] = useState(false);
         const [delId, setDelId] = useState(null);
+        const isLocalTeams = TIKAI_VIENKARSI_SKATS || !supabase;
+        const currentUser = (users ?? []).find((u) => String(u.id) === String(currentUserId)) ?? (users ?? [])[0];
+        const currentEmail = currentUser?.email ?? userImail(currentUser);
+        const [chatToId, setChatToId] = useState(null);
+        const [chatText, setChatText] = useState("");
+        const [chatMsgs, setChatMsgs] = useState([]);
         const total = users?.length ?? 0;
         const totalPages = Math.max(1, Math.ceil(total / TEAM_PAGE_SIZE) || 1);
         const safePage = Math.min(page, totalPages - 1);
@@ -1477,6 +1486,45 @@
           const tp = Math.max(1, Math.ceil((users?.length ?? 0) / TEAM_PAGE_SIZE) || 1);
           setPage((p) => Math.min(p, tp - 1));
         }, [users?.length]);
+
+        useEffect(() => {
+          if (!isLocalTeams) return;
+          if (!users || users.length === 0) return;
+          if (chatToId) return;
+          const others = (users ?? []).filter((u) => String(u.id) !== String(currentUserId));
+          const first = others[0] ?? null;
+          if (first?.id) setChatToId(first.id);
+        }, [isLocalTeams, users?.length, currentUserId, chatToId]);
+
+        useEffect(() => {
+          if (!isLocalTeams) return;
+          if (!chatToId || !currentEmail) return;
+          const toUser = (users ?? []).find((u) => String(u.id) === String(chatToId));
+          const toEmail = toUser?.email ?? userImail(toUser);
+          if (!toEmail) return;
+          const key = window.KOMANDA?.conversationKey?.(currentEmail, toEmail) ?? "";
+          if (!key) return;
+          setChatMsgs(window.KOMANDA?.loadMessages?.(key) ?? []);
+        }, [isLocalTeams, chatToId, currentEmail, users]);
+
+        function sendChat() {
+          if (!isLocalTeams) return;
+          const toUser = (users ?? []).find((u) => String(u.id) === String(chatToId));
+          const toEmail = toUser?.email ?? userImail(toUser);
+          const text = String(chatText || "").trim();
+          if (!toEmail || !text || !currentEmail) return;
+          const msg = window.KOMANDA?.addMessage?.({
+            fromEmail: currentEmail,
+            toEmail,
+            text,
+            ts: new Date().toISOString(),
+          });
+          if (!msg) return;
+          setChatText("");
+          const key = window.KOMANDA?.conversationKey?.(currentEmail, toEmail) ?? "";
+          if (!key) return;
+          setChatMsgs(window.KOMANDA?.loadMessages?.(key) ?? []);
+        }
         function openEdit(u) {
           setEditing(u.id);
           setForm({
@@ -1492,6 +1540,12 @@
           setBusy(true);
           try {
             const payload = buildUserRowPayload(form.vardUzv, form.imail, form.amats, form.role);
+            if (TIKAI_VIENKARSI_SKATS || !supabase) {
+              window.KOMANDA?.upsertTeamUser?.({ id: editing, ...payload });
+              setEditing(null);
+              await onReload();
+              return;
+            }
             const { error } = await supabase.from("users").update(payload).eq("id", editing);
             if (error) {
               alert(error.message);
@@ -1505,15 +1559,23 @@
         }
         async function saveAdd(e) {
           e.preventDefault();
-          const id = addForm.id.trim();
-          if (!isValidUuid(id)) {
+          const isLocal = TIKAI_VIENKARSI_SKATS || !supabase;
+          const id = isLocal ? (crypto?.randomUUID ? crypto.randomUUID() : String(Date.now())) : addForm.id.trim();
+          if (!isLocal && !isValidUuid(id)) {
             alert("Lietotāja ID jābūt derīgam UUID (Supabase → Authentication → Users).");
             return;
           }
           setBusy(true);
           try {
-            const payload = { id, ...buildUserRowPayload(addForm.vardUzv, addForm.imail, addForm.amats, addForm.role) };
-            const { error } = await supabase.from("users").insert(payload);
+            const payload = buildUserRowPayload(addForm.vardUzv, addForm.imail, addForm.amats, addForm.role);
+            if (isLocal) {
+              window.KOMANDA?.upsertTeamUser?.({ id, ...payload });
+              setAddOpen(false);
+              setAddForm({ id: "", vardUzv: "", imail: "", amats: "", role: "employee" });
+              await onReload();
+              return;
+            }
+            const { error } = await supabase.from("users").insert({ id, ...payload });
             if (error) {
               alert(error.message);
               return;
@@ -1529,6 +1591,12 @@
           if (!delId) return;
           setBusy(true);
           try {
+            if (TIKAI_VIENKARSI_SKATS || !supabase) {
+              window.KOMANDA?.deleteTeamUser?.(delId);
+              setDelId(null);
+              await onReload();
+              return;
+            }
             const { error } = await supabase.from("users").delete().eq("id", delId);
             if (error) {
               alert(error.message);
@@ -1561,16 +1629,20 @@
                   ${addOpen
                     ? html`
                         <form class="stack" style=${{ marginBottom: "1rem", padding: "0.75rem", border: "1px solid var(--border)", borderRadius: "8px" }} onSubmit=${saveAdd}>
-                          <div class="field">
-                            <label>Lietotāja UUID (no Supabase Authentication)</label>
-                            <input
-                              class="input"
-                              required
-                              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                              value=${addForm.id}
-                              onChange=${(ev) => setAddForm((f) => ({ ...f, id: ev.target.value }))}
-                            />
-                          </div>
+                          ${TIKAI_VIENKARSI_SKATS
+                            ? null
+                            : html`
+                                <div class="field">
+                                  <label>Lietotāja UUID (no Supabase Authentication)</label>
+                                  <input
+                                    class="input"
+                                    required
+                                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                                    value=${addForm.id}
+                                    onChange=${(ev) => setAddForm((f) => ({ ...f, id: ev.target.value }))}
+                                  />
+                                </div>
+                              `}
                           <div class="field">
                             <label>Vārds uzvārds</label>
                             <input
@@ -1660,6 +1732,98 @@
                 </tbody>
               </table>
             </div>
+            ${isLocalTeams
+              ? html`
+                  <div class="list-panel" style=${{
+                    marginTop: "0.9rem",
+                    padding: "0.9rem",
+                  }}>
+                    <h2 style=${{ margin: "0 0 0.6rem", fontSize: "1rem" }}>Ziņu apmaiņa</h2>
+                    <div class="row" style=${{ marginBottom: "0.6rem", gap: "0.75rem" }}>
+                      <div class="field" style=${{ flex: "1 1 280px" }}>
+                        <label>Adresāts</label>
+                        <select
+                          class="select"
+                          value=${chatToId ?? ""}
+                          onChange=${(ev) => setChatToId(ev.target.value || null)}
+                        >
+                          ${(
+                            users ?? []
+                          ).filter((u) => String(u.id) !== String(currentUserId)).map((u) => {
+                            const em = u.email ?? userImail(u);
+                            return html`<option key=${u.id} value=${u.id}>${u["Vārds uzvārds"] ?? u.full_name ?? "—"} · ${em}</option>`;
+                          })}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div
+                      style=${{
+                        maxHeight: "220px",
+                        overflow: "auto",
+                        padding: "0.6rem",
+                        background: "var(--bg)",
+                        border: "1px solid var(--border)",
+                        borderRadius: "10px",
+                        marginBottom: "0.6rem",
+                      }}
+                    >
+                      ${
+                        chatMsgs.length === 0
+                          ? html`<p style=${{ margin: 0, color: "var(--muted)", fontStyle: "italic" }}>Nav ziņu.</p>`
+                          : chatMsgs.map((m) => {
+                              const isMe = m.fromEmail === currentEmail;
+                              return html`
+                                <div style=${{
+                                  marginBottom: "0.55rem",
+                                  textAlign: isMe ? "right" : "left",
+                                }}>
+                                  <div style=${{
+                                    fontSize: "0.78rem",
+                                    color: "var(--muted)",
+                                    marginBottom: "0.15rem",
+                                  }}>
+                                    ${isMe ? "Tu" : "No"}: ${m.fromEmail}
+                                  </div>
+                                  <div style=${{
+                                    display: "inline-block",
+                                    padding: "0.45rem 0.6rem",
+                                    borderRadius: "10px",
+                                    background: isMe ? "rgba(56,189,248,0.16)" : "rgba(148,163,184,0.10)",
+                                    border: `1px solid ${isMe ? "rgba(56,189,248,0.35)" : "var(--border)"}`,
+                                    whiteSpace: "pre-wrap",
+                                  }}>
+                                    ${m.text}
+                                  </div>
+                                  <div style=${{
+                                    fontSize: "0.7rem",
+                                    color: "var(--muted)",
+                                    marginTop: "0.15rem",
+                                  }}>
+                                    ${m.ts ? String(m.ts).replace("T", " ").slice(0, 16) : ""}
+                                  </div>
+                                </div>
+                              `;
+                            })
+                      }
+                    </div>
+
+                    <div class="stack">
+                      <textarea
+                        class="textarea"
+                        value=${chatText}
+                        onChange=${(ev) => setChatText(ev.target.value)}
+                        placeholder="Ieraksti ziņu…"
+                      />
+                      <div class="row" style=${{ justifyContent: "flex-end" }}>
+                        <button type="button" class="btn btn-primary" disabled=${!chatText || !chatToId} onClick=${sendChat}>
+                          Sūtīt
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                `
+              : null}
             ${total > TEAM_PAGE_SIZE
               ? html`
                   <div
@@ -2492,22 +2656,19 @@
         }, []);
         const loadTeamAndDeputy = useCallback(async () => {
           if (isLocalMode()) {
-            const ln = localDisplayName();
-            setTeamUsers([
-              {
-                id: LOCAL_USER_ID,
-                full_name: ln,
-                [COL_USER_NAME]: ln,
-                [COL_USER_IMAIL]: "demo@local",
-                [COL_USER_AMATS]: "",
-                email: "demo@local",
-                role: "employee",
-                created_at: new Date().toISOString(),
-              },
-            ]);
-            setDeputyUserId(localStorage.getItem(LS_LOCAL_DEPUTY_USER_ID) || null);
-            setDeputyValidFrom(localStorage.getItem(LS_LOCAL_DEPUTY_FROM) || null);
-            setDeputyValidTo(localStorage.getItem(LS_LOCAL_DEPUTY_TO) || null);
+            const users = (window.KOMANDA?.loadTeamUsers?.() ?? []).map((u) => ({
+              ...u,
+              id: String(u.id),
+              // Nodrošina atslēgas UI šablonam
+              [COL_USER_NAME]: u[COL_USER_NAME] ?? u.full_name ?? localDisplayName(),
+              [COL_USER_AMATS]: u[COL_USER_AMATS] ?? u.Amats ?? "",
+              // i-mail kolonnai (renderēšanā izmanto userImail(), bet drošībai ieliekam)
+              email: u.email ?? u["e-pasts"] ?? u["i-mail"] ?? "",
+            }));
+            setTeamUsers(users);
+            setDeputyUserId(null);
+            setDeputyValidFrom(null);
+            setDeputyValidTo(null);
             return;
           }
           const { error: rpcErr } = await supabase.rpc("pdd_cleanup_expired_deputy");
@@ -2704,7 +2865,7 @@
               ? html`
                   <${TeamUsersDirectory}
                     users=${teamUsers}
-                    canAdmin=${isManager && !isLocalMode()}
+                    canAdmin=${TIKAI_VIENKARSI_SKATS || (isManager && !isLocalMode())}
                     currentUserId=${userId}
                     onReload=${reloadUsersAndViews}
                   />
