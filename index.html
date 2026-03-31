@@ -857,6 +857,8 @@
        */
       function effectiveDeputyUserId(rawId, validFrom, validTo) {
         if (!rawId) return null;
+        // Ja perioda nav (abi datumi tukši) → uzskatām, ka nav aizvietotāja, paliek vadītājs.
+        if (!validFrom && !validTo) return null;
         const today = new Date().toISOString().slice(0, 10);
         if (validFrom && today < validFrom) return null;
         if (validTo && today > validTo) return null;
@@ -3846,7 +3848,8 @@
             .eq("id", 1)
             .maybeSingle();
           if (dErr) console.error(dErr);
-          setDeputyUserId(drow?.deputy_user_id ?? null);
+          const effectiveId = effectiveDeputyUserId(drow?.deputy_user_id ?? null, null, null);
+          setDeputyUserId(effectiveId);
           setDeputyValidFrom(null);
           setDeputyValidTo(null);
         }, []);
