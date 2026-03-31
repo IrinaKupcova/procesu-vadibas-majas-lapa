@@ -453,6 +453,8 @@
       function detectAbsenceColumnsFromRow(row) {
         if (!row || typeof row !== "object") return;
         for (const [canon, aliases] of Object.entries(ABSENCE_ALT_KEYS)) {
+          // USER_ID vienmēr turam uz `user_id` kolonnas, nevis uz tekstu „Vārds uzvārds”.
+          if (canon === "user_id") continue;
           const hit = pickByAliases(row, aliases, undefined);
           if (hit !== undefined) {
             const key = Object.keys(row).find((k) =>
@@ -502,9 +504,20 @@
         };
       }
 
-      function absencePayloadDetected({ userId, typeId, startDate, endDate, comment, status, approvedBy, approvedAt }) {
+      function dbUserRefValue({ userId, userName, columnName }) {
+        const _unusedName = userName;
+        const c = String(columnName ?? "").toLowerCase().trim();
+        if (c) return userId;
+        return userId;
+      }
+
+      function absencePayloadDetected({ userId, userName, typeId, startDate, endDate, comment, status, approvedBy, approvedAt }) {
         return {
-          [ABSENCE_COLS_RUNTIME.user_id]: userId,
+          [ABSENCE_COLS_RUNTIME.user_id]: dbUserRefValue({
+            userId,
+            userName,
+            columnName: ABSENCE_COLS_RUNTIME.user_id,
+          }),
           [ABSENCE_COLS_RUNTIME.type_id]: Number(typeId),
           [ABSENCE_COLS_RUNTIME.start_date]: startDate,
           [ABSENCE_COLS_RUNTIME.end_date]: endDate,
@@ -517,7 +530,6 @@
 
       function absencePayloadLatvian({ userId, typeId, startDate, endDate, comment, status, approvedBy, approvedAt }) {
         return {
-          "Darbinieka_ID": userId,
           "Prombūtnes veids": Number(typeId),
           "Sākuma datums": startDate,
           "Beigu datums": endDate,
@@ -530,6 +542,7 @@
 
       function absencePayloadLatvianUnderscore({
         userId,
+        userName,
         typeId,
         startDate,
         endDate,
@@ -539,7 +552,6 @@
         approvedAt,
       }) {
         return {
-          "Vārds uzvārds": userId,
           type: Number(typeId),
           sakuma_datums: startDate,
           beigu_datums: endDate,
@@ -552,6 +564,7 @@
 
       function absencePayloadLatvianUnderscoreCaps({
         userId,
+        userName,
         typeId,
         startDate,
         endDate,
@@ -561,7 +574,6 @@
         approvedAt,
       }) {
         return {
-          "Vārds uzvārds": userId,
           type: Number(typeId),
           Sakuma_datums: startDate,
           Beigu_datums: endDate,
@@ -572,21 +584,112 @@
         };
       }
 
+      function missingColumnFromError(err) {
+        const msg = String(err?.message ?? "");
+        const m = msg.match(/Could not find the '([^']+)' column/i);
+        return m?.[1] ? String(m[1]) : null;
+      }
+
+      function isUuidLike(v) {
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(v ?? ""));
+      }
+
+      function looksLikeNameRefKey(k) {
+        const key = String(k ?? "").toLowerCase();
+        return (
+          key.includes("vārds") ||
+          key.includes("vards") ||
+          key.includes("darbin") ||
+          key.includes("user")
+        );
+      }
+
+      async function insertWithColumnPruning(table, initialPayload, opts = {}, maxTries = 8) {
+        let payload = { ...initialPayload };
+        const userId = opts?.userId ?? null;
+        const userName = String(opts?.userName ?? "").trim();
+        const startDate = opts?.startDate ?? null;
+        let lastErr = null;
+        for (let i = 0; i < maxTries; i += 1) {
+          const { error } = await supabase.from(table).insert(payload);
+          if (!error) return null;
+          lastErr = error;
+          const msg = String(error?.message ?? "");
+
+          // Ja kļūda par UUID sintaksi un payload satur vārdu, pārslēdzam uz userId.
+          if (/invalid input syntax for type uuid/i.test(msg) && userId && userName) {
+            const invalidUuidMatch = msg.match(/type uuid:\s*"([^"]+)"/i);
+            const invalidValue = invalidUuidMatch?.[1] ? String(invalidUuidMatch[1]).trim() : null;
+            let changed = false;
+            for (const k of Object.keys(payload)) {
+              const v = String(payload[k] ?? "").trim();
+              const lk = String(k).toLowerCase();
+              if (
+                v &&
+                !isUuidLike(v) &&
+                (v === userName || v === invalidValue || looksLikeNameRefKey(k))
+              ) {
+                payload[k] = userId;
+                changed = true;
+              }
+            }
+            if (changed) continue;
+          }
+
+          // Ja FK kļūda uz "Vārds uzvārds", šī kolonna tavā DB ir reference uz users.id (UUID).
+          if (/foreign key constraint.*prombutnes_dati_.*vārds uzvārds.*_fkey/i.test(msg) && userId) {
+            let changed = false;
+            for (const k of Object.keys(payload)) {
+              const lk = String(k).toLowerCase();
+              if (lk.includes("vārds uzvārds") || lk.includes("vards uzvards")) {
+                payload[k] = userId;
+                changed = true;
+              }
+            }
+            if (!changed && !("Vārds uzvārds" in payload)) {
+              payload["Vārds uzvārds"] = userId;
+              changed = true;
+            }
+            if (changed) continue;
+          }
+
+          // Ja NOT NULL kļūda par Sakuma_datums / sakuma_datums, ieliekam startDate.
+          if (/null value in column "sakuma_datums"/i.test(msg) && startDate) {
+            payload.sakuma_datums = startDate;
+            continue;
+          }
+          if (/null value in column "Sakuma_datums"/i.test(msg) && startDate) {
+            payload.Sakuma_datums = startDate;
+            continue;
+          }
+
+          const missingCol = missingColumnFromError(error);
+          if (!missingCol) return error;
+          const keys = Object.keys(payload);
+          const hitKey = keys.find((k) => String(k).toLowerCase() === missingCol.toLowerCase());
+          if (!hitKey) return error;
+          delete payload[hitKey];
+          // Neatstājam tukšu payload, citādi inserts nav jēgpilns.
+          if (Object.keys(payload).length === 0) return error;
+        }
+        return lastErr;
+      }
+
       async function insertAbsenceWithFallback(fields) {
         const detected = absencePayloadDetected(fields);
-        const { error: errDetected } = await supabase.from("prombutnes_dati").insert(detected);
+        const errDetected = await insertWithColumnPruning("prombutnes_dati", detected, fields);
         if (!errDetected) return null;
         const classic = absencePayloadClassic(fields);
-        const { error: errClassic } = await supabase.from("prombutnes_dati").insert(classic);
+        const errClassic = await insertWithColumnPruning("prombutnes_dati", classic, fields);
         if (!errClassic) return null;
         const latvian = absencePayloadLatvian(fields);
-        const { error: errLatvian } = await supabase.from("prombutnes_dati").insert(latvian);
+        const errLatvian = await insertWithColumnPruning("prombutnes_dati", latvian, fields);
         if (!errLatvian) return null;
         const latvianUnderscore = absencePayloadLatvianUnderscore(fields);
-        const { error: errLatvian2 } = await supabase.from("prombutnes_dati").insert(latvianUnderscore);
+        const errLatvian2 = await insertWithColumnPruning("prombutnes_dati", latvianUnderscore, fields);
         if (!errLatvian2) return null;
         const latvianUnderscoreCaps = absencePayloadLatvianUnderscoreCaps(fields);
-        const { error: errLatvian3 } = await supabase.from("prombutnes_dati").insert(latvianUnderscoreCaps);
+        const errLatvian3 = await insertWithColumnPruning("prombutnes_dati", latvianUnderscoreCaps, fields);
         return errLatvian3 ?? errLatvian2 ?? errLatvian ?? errClassic ?? errDetected;
       }
 
@@ -1810,8 +1913,10 @@
               );
             } else {
               const nowIso = new Date().toISOString();
+              const selectedUser = (users ?? []).find((u) => String(u?.id) === String(selectedUserId)) ?? null;
               const error = await insertAbsenceWithFallback({
                 userId: selectedUserId,
+                userName: selectedUser ? userDisplayName(selectedUser) : "",
                 typeId: Number(typeId),
                 startDate,
                 endDate,
