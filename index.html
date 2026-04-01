@@ -3629,7 +3629,7 @@
         }
         function canDeleteAbsence(a) {
           const own = approverView ? isOwnAbsence(a) : true;
-          return isAdmin || own;
+          return own;
         }
         const anyActions = filteredList.some((a) => {
           const canEdit = canEditAbsence(a);
