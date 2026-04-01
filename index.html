@@ -483,6 +483,12 @@
           .trim();
       }
 
+      function isUuidLike(v) {
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          String(v ?? "").trim()
+        );
+      }
+
       function detectUserApproverColumns(usersLike) {
         const rows = Array.isArray(usersLike) ? usersLike : [];
         const keys = new Set();
@@ -641,10 +647,6 @@
         const msg = String(err?.message ?? "");
         const m = msg.match(/Could not find the '([^']+)' column/i);
         return m?.[1] ? String(m[1]) : null;
-      }
-
-      function isUuidLike(v) {
-        return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(v ?? ""));
       }
 
       function looksLikeNameRefKey(k) {
@@ -1178,13 +1180,8 @@
 
       /** Cits saskaņošana: tikai noklusētais vadītājs vai aktīvais aizvietotājs. */
       function userCanApproveAbsences(profileRole, sessionUserId, deputyUserId) {
+        if (normalizeUserRole(profileRole) === "admin") return true;
         if (isDefaultManagerUser(sessionUserId)) return true;
-        if (
-          deputyUserId &&
-          sessionUserId &&
-          String(deputyUserId) === String(sessionUserId)
-        )
-          return true;
         return false;
       }
 
@@ -1632,17 +1629,6 @@
                           >
                             Prombūtnes vēsture
                           </button>
-                          ${showPromDeputyTab
-                            ? html`
-                                <button
-                                  type="button"
-                                  class=${`app-nav-sublink ${promSub === "deputy" ? "active" : ""}`}
-                                  onClick=${() => onPromSubChange("deputy")}
-                                >
-                                  Apstiprinātāja maiņa
-                                </button>
-                              `
-                            : null}
                           <button
                             type="button"
                             class=${`app-nav-sublink ${promSub === "changes" ? "active" : ""}`}
@@ -2756,8 +2742,21 @@
         const [periodTo, setPeriodTo] = useState(deputyValidTo ?? "");
         const [busy, setBusy] = useState(false);
         const [msg, setMsg] = useState(null);
+        function deputyOptionValue(u) {
+          const id = String(u?.id ?? "").trim();
+          if (isUuidLike(id)) return id;
+          const nm = String(u?.[COL_USER_NAME] ?? u?.full_name ?? userDisplayName(u) ?? "").trim();
+          return nm ? `name:${nm}` : id;
+        }
         useEffect(() => {
-          setOptionUsers(Array.isArray(teamUsers) ? teamUsers : []);
+          const fromProp = Array.isArray(teamUsers) ? teamUsers : [];
+          if (fromProp.length) {
+            setOptionUsers(fromProp);
+            return;
+          }
+          const fromKomanda = window.KOMANDA?.loadTeamUsers?.() ?? [];
+          const arr = Array.isArray(fromKomanda) ? fromKomanda : [];
+          setOptionUsers(arr.map(normalizeTeamUserRecord));
         }, [teamUsers]);
         useEffect(() => {
           if (isLocalMode() || !supabase) return;
@@ -2800,11 +2799,6 @@
               );
               return;
             }
-            const managerUser = resolveManagerUser(teamUsers ?? []);
-            if (!managerUser) {
-              setMsg("Neizdevās atrast pamatvadītāju users tabulā.");
-              return;
-            }
             if (window.SASKANOSANA?.saveState) {
               const res = await window.SASKANOSANA.saveState(
                 supabase,
@@ -2819,6 +2813,11 @@
               }
               await onDeputyChange();
               setMsg(nextId ? "Apstiprinātājs saglabāts norādītajam periodam." : "Atiestatīts uz pamatvadītāju.");
+              return;
+            }
+            const managerUser = resolveManagerUser(teamUsers ?? []);
+            if (!managerUser) {
+              setMsg("Neizdevās atrast pamatvadītāju users tabulā.");
               return;
             }
             const colsDefault = approverCols ?? {
@@ -2914,7 +2913,37 @@
         async function saveForm(e) {
           e.preventDefault();
           const isMgrOpt = sel === DEPUTY_OPT_MANAGER;
-          const nextId = isMgrOpt ? null : sel;
+          let nextId = isMgrOpt ? null : sel;
+          if (!isLocalMode() && nextId && !isUuidLike(nextId)) {
+            const pickedNameFromValue = String(nextId).startsWith("name:")
+              ? String(nextId).slice(5).trim()
+              : "";
+            const picked =
+              (optionUsers ?? []).find((u) => deputyOptionValue(u) === String(nextId)) ?? null;
+            const pickedName = String(
+              pickedNameFromValue ||
+                picked?.[COL_USER_NAME] ||
+                picked?.full_name ||
+                userDisplayName(picked) ||
+                ""
+            ).trim();
+            if (pickedName) {
+              const q = await supabase.from("users").select("*");
+              if (!q.error) {
+                const rows = (q.data ?? []).map(normalizeTeamUserRecord);
+                const hit = rows.find(
+                  (u) =>
+                    normalizeAliasKey(u?.[COL_USER_NAME]) === normalizeAliasKey(pickedName) &&
+                    isUuidLike(u?.id)
+                );
+                if (hit?.id) nextId = String(hit.id);
+              }
+            }
+            if (nextId && !isUuidLike(nextId)) {
+              setMsg("Izvēlētajam pagaidu apstiprinātājam nav derīgs UUID users.id laukā.");
+              return;
+            }
+          }
           const fromStr = isMgrOpt ? "" : periodFrom.trim();
           const toStr = isMgrOpt ? "" : periodTo.trim();
           if (!isMgrOpt) {
@@ -2968,10 +2997,12 @@
                 >
                   <option value=${DEPUTY_OPT_MANAGER}>Nav pagaidu apstiprinātāja (paliek vadītājs)</option>
                   ${optionUsers
-                    .filter((u) => String(u.id || "").trim() !== "")
+                    .filter((u) => String(userDisplayName(u) || "").trim() !== "")
                     .map(
                       (u) => html`
-                        <option key=${u.id} value=${u.id}>${formatUserSelectLabel(u)}</option>
+                        <option key=${u.id || userDisplayName(u)} value=${deputyOptionValue(u)}>
+                          ${formatUserSelectLabel(u)}
+                        </option>
                       `
                     )}
                 </select>
@@ -4320,10 +4351,10 @@
             void supabase.removeChannel(ch);
           };
         }, [loadTeamAndDeputy, refresh]);
-        const isManager = role === "admin";
         const canApprove = userCanApproveAbsences(role, userId, deputyEffectiveId);
-        // Neatmetam promSub automātiski uz "calendar", lai "Apstiprinātāja maiņa"
-        // vienmēr var atvērties no navigācijas.
+        useEffect(() => {
+          if (promSub === "deputy") setPromSub("calendar");
+        }, [promSub, setPromSub]);
         const promSubLabel =
           promSub === "calendar"
             ? "Kalendārs"
@@ -4335,9 +4366,7 @@
                   ? "Auditācijas vēsture"
               : promSub === "teamUsers"
                 ? "Komanda"
-                : promSub === "deputy"
-                  ? "Apstiprinātāja maiņa"
-                  : "";
+                : "";
         return html`
           <section class="stack" style=${{ gap: "1.25rem" }}>
             <div>
@@ -4414,19 +4443,6 @@
                     presetDate=${requestPresetDate}
                     onConsumePreset=${() => setRequestPresetDate("")}
                     canApproveRequests=${canApprove}
-                  />
-                `
-              : null}
-            ${promSub === "deputy"
-              ? html`
-                  <${DeputyDelegePanel}
-                    teamUsers=${teamUsers}
-                    approverCols=${approverCols}
-                    deputyUserId=${deputyUserId}
-                    deputyValidFrom=${deputyValidFrom}
-                    deputyValidTo=${deputyValidTo}
-                    onDeputyChange=${reloadUsersAndViews}
-                    currentUserId=${userId}
                   />
                 `
               : null}

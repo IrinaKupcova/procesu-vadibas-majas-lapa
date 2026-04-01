@@ -27,6 +27,12 @@
     return s;
   }
 
+  function isUuidLike(v) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      String(v ?? "").trim()
+    );
+  }
+
   function detectCols(rows) {
     const keys = Array.from(new Set((rows ?? []).flatMap((r) => Object.keys(r || {}))));
     return {
@@ -74,7 +80,11 @@
     if (error) return { error };
     const rows = data ?? [];
     const cols = detectCols(rows);
-    const manager = rows.find((u) => n(u?.[cols.name]) === n(managerName)) ?? null;
+    const managerByStatus = rows.find((u) => mode(u?.[cols.status]) === "default") ?? null;
+    const managerByName = rows.find((u) => n(u?.[cols.name]) === n(managerName)) ?? null;
+    const managerByAdminName = rows.find((u) => n(u?.role) === "admin" && n(u?.[cols.name]).includes("katrina")) ?? null;
+    const managerByAnyAdmin = rows.find((u) => n(u?.role) === "admin") ?? null;
+    const manager = managerByStatus || managerByName || managerByAdminName || managerByAnyAdmin || null;
     const today = toIso(new Date().toISOString().slice(0, 10));
     const deputy =
       rows.find((u) => {
@@ -96,10 +106,12 @@
   }
 
   async function saveState(supabase, managerName, deputyUserId, fromStr, toStr) {
+    if (deputyUserId && !isUuidLike(deputyUserId)) {
+      return { error: { message: `Pagaidu apstiprinātāja id nav UUID: "${deputyUserId}"` } };
+    }
     const state = await loadState(supabase, managerName);
     if (state.error) return state;
     const { rows, cols, manager } = state;
-    if (!manager) return { error: { message: "Nav atrasts pamatvadītājs users tabulā." } };
 
     async function updateOneUser(id, payload, requireWrite) {
       const draft = { ...payload };
@@ -151,11 +163,13 @@
     }
 
     // Ja manager rindu nevar atjaunot (RLS), neturam to kā fatālu kļūdu: galvenais ir saglabāt izvēlēto periodisko.
-    await updateOneUser(
-      manager.id,
-      { [cols.status]: "pec noklusējuma vienmēr", [cols.from]: null, [cols.to]: null },
-      false
-    );
+    if (manager?.id) {
+      await updateOneUser(
+        manager.id,
+        { [cols.status]: "pec noklusējuma vienmēr", [cols.from]: null, [cols.to]: null },
+        false
+      );
+    }
 
     if (deputyUserId) {
       const deputyRes = await updateOneUser(
