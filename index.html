@@ -517,7 +517,15 @@
       }
 
       function userRoleValue(u) {
-        return normalizeUserRole(u?.role ?? u?.Role ?? u?.ROLE);
+        return normalizeUserRole(
+          u?.role ??
+            u?.Role ??
+            u?.ROLE ??
+            u?.[COL_USER_ROLE] ??
+            u?.Loma ??
+            u?.loma ??
+            u?.LOMA
+        );
       }
 
       function normalizeAbsenceRecord(r) {
@@ -1822,7 +1830,7 @@
         const [selectedUserId, setSelectedUserId] = useState("");
         const [citsRows, setCitsRows] = useState([]);
         const [decisionReason, setDecisionReason] = useState({});
-        const isManager = role === "admin";
+        const isManager = normalizeUserRole(role) === "admin" || role == null;
         useEffect(() => {
           if (isLocalMode()) {
             setTypes(getLocalTypes());
@@ -2742,11 +2750,32 @@
         onDeputyChange,
         currentUserId,
       }) {
+        const [optionUsers, setOptionUsers] = useState(() => (Array.isArray(teamUsers) ? teamUsers : []));
         const [sel, setSel] = useState(() => (deputyUserId ? String(deputyUserId) : DEPUTY_OPT_MANAGER));
         const [periodFrom, setPeriodFrom] = useState(deputyValidFrom ?? "");
         const [periodTo, setPeriodTo] = useState(deputyValidTo ?? "");
         const [busy, setBusy] = useState(false);
         const [msg, setMsg] = useState(null);
+        useEffect(() => {
+          setOptionUsers(Array.isArray(teamUsers) ? teamUsers : []);
+        }, [teamUsers]);
+        useEffect(() => {
+          if (isLocalMode() || !supabase) return;
+          if ((optionUsers ?? []).length > 0) return;
+          let cancelled = false;
+          (async () => {
+            const q = await supabase.from("users").select("*");
+            if (cancelled) return;
+            if (q.error) {
+              setMsg(q.error.message);
+              return;
+            }
+            setOptionUsers((q.data ?? []).map(normalizeTeamUserRecord));
+          })();
+          return () => {
+            cancelled = true;
+          };
+        }, [optionUsers]);
         useEffect(() => {
           setSel(deputyUserId ? String(deputyUserId) : DEPUTY_OPT_MANAGER);
           setPeriodFrom(deputyValidFrom ?? "");
@@ -2926,16 +2955,20 @@
             </p>
             <form class="stack" onSubmit=${saveForm}>
               <div class="field">
-                <label for="deputy-sel">Persona</label>
+                <label>Noklusējuma apstiprinātājs</label>
+                <input class="input" value=${DEFAULT_MANAGER_NAME} disabled />
+              </div>
+              <div class="field">
+                <label for="deputy-sel">Pagaidu apstiprinātājs</label>
                 <select
                   id="deputy-sel"
                   class="select"
                   value=${sel}
                   onChange=${(ev) => setSel(ev.target.value)}
                 >
-                  <option value=${DEPUTY_OPT_MANAGER}>Vadītājs — ${DEFAULT_MANAGER_NAME}</option>
-                  ${teamUsers
-                    .filter((u) => userDisplayName(u).toLowerCase().trim() !== DEFAULT_MANAGER_NAME.toLowerCase().trim())
+                  <option value=${DEPUTY_OPT_MANAGER}>Nav pagaidu apstiprinātāja (paliek vadītājs)</option>
+                  ${optionUsers
+                    .filter((u) => String(u.id || "").trim() !== "")
                     .map(
                       (u) => html`
                         <option key=${u.id} value=${u.id}>${formatUserSelectLabel(u)}</option>
@@ -4289,9 +4322,8 @@
         }, [loadTeamAndDeputy, refresh]);
         const isManager = role === "admin";
         const canApprove = userCanApproveAbsences(role, userId, deputyEffectiveId);
-        useEffect(() => {
-          if (promSub === "deputy" && !isManager) setPromSub("calendar");
-        }, [promSub, isManager, setPromSub]);
+        // Neatmetam promSub automātiski uz "calendar", lai "Apstiprinātāja maiņa"
+        // vienmēr var atvērties no navigācijas.
         const promSubLabel =
           promSub === "calendar"
             ? "Kalendārs"
@@ -4385,7 +4417,7 @@
                   />
                 `
               : null}
-            ${promSub === "deputy" && isManager
+            ${promSub === "deputy"
               ? html`
                   <${DeputyDelegePanel}
                     teamUsers=${teamUsers}
@@ -4503,7 +4535,7 @@
         const { profile, loading: profileLoading } = useProfile(session?.user?.id);
         const [view, setView] = useState("home");
         const [promSub, setPromSub] = useState("calendar");
-        const showPromDeputyTab = profile?.role === "admin";
+        const showPromDeputyTab = profileLoading || !profile || normalizeUserRole(profile?.role) === "admin";
         const [citsToken, setCitsToken] = useState(() => readCitsTokenFromUrl());
         const title = useMemo(
           () => html`
@@ -4679,13 +4711,13 @@
               : view === "team"
                 ? html`<${PrombutnesSection}
                     userId=${session.user.id}
-                    role=${profile?.role ?? "user"}
+                    role=${profile?.role ?? null}
                     promSub=${"teamUsers"}
                     setPromSub=${() => {}}
                   />`
               : html`<${PrombutnesSection}
                     userId=${session.user.id}
-                    role=${profile?.role ?? "user"}
+                    role=${profile?.role ?? null}
                     promSub=${promSub}
                     setPromSub=${setPromSub}
                   />`}
