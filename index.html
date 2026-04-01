@@ -447,6 +447,7 @@
         start_date: ["start_date", "sākuma datums", "sakuma_datums", "sakuma datums", "sākuma_datums", "sākuma_datums"],
         end_date: ["end_date", "beigu datums", "beigu_datums", "beigu_datums"],
         comment: ["comment", "komentāri", "komentari", "komentārs", "komentars"],
+        reject_reason: ["Atteikuma_iemesls", "atteikuma_iemesls", "Atteikuma iemesls", "atteikuma iemesls", "rejection_reason"],
         status: ["status", "statuss", "statuss"],
         approved_by: ["approved_by", "apstiprinaja", "apstiprinātājs", "apstiprinatajs"],
         approved_at: ["approved_at", "apstiprināts", "apstiprinats", "apstiprināts_at", "apstiprinats_at", "apstiprinājuma_laiks", "apstiprinajuma_laiks"],
@@ -458,6 +459,7 @@
         start_date: "Sakuma_datums",
         end_date: "Beigu_datums",
         comment: "Komentārs",
+        reject_reason: "Atteikuma_iemesls",
         status: "Statuss",
         approved_by: "approved_by",
         approved_at: "created_at",
@@ -533,6 +535,7 @@
         const startRaw = pickByAliases(r, ABSENCE_ALT_KEYS.start_date, "");
         const endRaw = pickByAliases(r, ABSENCE_ALT_KEYS.end_date, "");
         const commentRaw = pickByAliases(r, ABSENCE_ALT_KEYS.comment, null);
+        const rejectReasonRaw = pickByAliases(r, ABSENCE_ALT_KEYS.reject_reason, null);
         const statusRaw = pickByAliases(r, ABSENCE_ALT_KEYS.status, "pending");
         return {
           ...r,
@@ -541,6 +544,7 @@
           start_date: String(startRaw ?? ""),
           end_date: String(endRaw ?? ""),
           comment: commentRaw == null ? null : String(commentRaw),
+          reject_reason: rejectReasonRaw == null ? null : String(rejectReasonRaw),
           status: normalizeAbsenceStatus(statusRaw),
           approved_by: pickByAliases(r, ABSENCE_ALT_KEYS.approved_by, null),
           approved_at: pickByAliases(r, ABSENCE_ALT_KEYS.approved_at, null),
@@ -1298,16 +1302,11 @@
         return manager ? String(manager.id) === String(sessionUserId) : false;
       }
 
-      /** Cits saskaņošana: tikai noklusētais vadītājs vai aktīvais aizvietotājs. */
+      /** Cits saskaņošana: tikai vadītājs vai admins. */
       function userCanApproveAbsences(profileRole, sessionUserId, deputyUserId) {
+        void deputyUserId;
         if (normalizeUserRole(profileRole) === "admin") return true;
         if (isDefaultManagerUser(sessionUserId)) return true;
-        if (
-          deputyUserId &&
-          sessionUserId &&
-          String(deputyUserId) === String(sessionUserId)
-        )
-          return true;
         return false;
       }
 
@@ -1963,14 +1962,27 @@
             setTypes(getLocalTypes());
             return;
           }
-          supabase
-            .from("prombutnes_veidi")
-            .select("*")
-            .order("id", { ascending: true })
-            .then(({ data, error }) => {
-              if (error) console.error(error);
-              setTypes((data ?? []).map(normalizeAbsenceTypeRecord));
-            });
+          (async () => {
+            await ensureDbReadableSession();
+            const q = await supabase.from("prombutnes_veidi").select("*").order("id", { ascending: true });
+            let rows = q.data;
+            let err = q.error;
+            if (err || !(rows ?? []).length) {
+              const rr = await fetchTableDirectFromRest("prombutnes_veidi", { orderBy: "id", ascending: true });
+              if (!rr.error && Array.isArray(rr.data) && rr.data.length) {
+                rows = rr.data;
+                err = null;
+              } else if (err) {
+                rows = rr.data;
+                err = rr.error;
+              }
+            }
+            if (err) console.error(err);
+            const mapped = (rows ?? [])
+              .map(normalizeAbsenceTypeRecord)
+              .filter((t) => String(t?.name ?? "").trim() !== "");
+            setTypes(mapped);
+          })();
         }, []);
         useEffect(() => {
           let cancelled = false;
@@ -3462,6 +3474,7 @@
           end: "",
           comment: "",
           status: "",
+          rejectReason: "",
         });
         const filterNameActive = String(filters?.name ?? "").trim() !== "";
         const filterTypeActive = String(filters?.type ?? "").trim() !== "";
@@ -3469,6 +3482,7 @@
         const filterEndActive = String(filters?.end ?? "").trim() !== "";
         const filterCommentActive = String(filters?.comment ?? "").trim() !== "";
         const filterStatusActive = String(filters?.status ?? "").trim() !== "";
+        const filterRejectReasonActive = String(filters?.rejectReason ?? "").trim() !== "";
         function userShownFromFull(userFull) {
           const uf = userFull ?? "—";
           const userParts = String(uf).split(/\s+/).filter(Boolean);
@@ -3479,7 +3493,7 @@
               : `${userParts[0]} ${userParts[userParts.length - 1]}`;
         }
         function clearFilters() {
-          setFilters({ name: "", type: "", start: "", end: "", comment: "", status: "" });
+          setFilters({ name: "", type: "", start: "", end: "", comment: "", status: "", rejectReason: "" });
         }
         const myNameForFilter = useMemo(() => {
           const own = (absences ?? []).find((a) => String(a.user_id) === String(userId));
@@ -3519,7 +3533,7 @@
             const userShown = userShownFromFull(userFull);
             const typeName = a.type?.name ?? a.type_id ?? "";
             const statusText = isCitsSaskanotsTypeName(typeName)
-              ? (a.status === "approved" ? "saskaņots" : "gaida")
+              ? (a.status === "approved" ? "saskaņots" : a.status === "rejected" ? "noraidīts" : "gaida")
               : "bez saskaņošanas";
             if (f.name && !includesMatch(userShown, f.name)) return false;
             if (f.type && !includesMatch(typeName, f.type)) return false;
@@ -3527,6 +3541,7 @@
             if (f.end && !includesMatch(a.end_date ?? "", f.end)) return false;
             if (f.comment && !includesMatch(a.comment ?? "", f.comment)) return false;
             if (f.status && !includesMatch(statusText, f.status)) return false;
+            if (f.rejectReason && !includesMatch(extractRejectReason(a), f.rejectReason)) return false;
             return true;
           });
         }, [sortedList, filters, approverView, userId]);
@@ -3553,6 +3568,12 @@
         }, [highlightAbsenceId, historyOpen, filteredList]);
 
         const isAdmin = String(role || "").toLowerCase() === "admin";
+        function isPendingStatus(v) {
+          return String(v ?? "").toLowerCase() === "pending";
+        }
+        function extractRejectReason(absenceRow) {
+          return String(absenceRow?.reject_reason ?? "").trim();
+        }
         function isApprovedCitsAbsence(a) {
           const typeName = a?.type?.name ?? a?.type_id ?? "";
           return isCitsSaskanotsTypeName(typeName) && String(a?.status || "").toLowerCase() === "approved";
@@ -3570,7 +3591,7 @@
           const canDelete = canDeleteAbsence(a);
           return canEdit || canDelete;
         });
-        const colCount = anyActions ? 7 : 6;
+        const colCount = anyActions ? 8 : 7;
         useEffect(() => {
           if (!highlightAbsenceId || !historyOpen) return;
           const h = window.requestAnimationFrame(() => {
@@ -3849,6 +3870,23 @@
                         </svg>
                       </button>
                     </th>
+                    <th>
+                      Atteikuma iemesls
+                      <button
+                        type="button"
+                        class=${`btn btn-ghost btn-small ${filterRejectReasonActive ? "btn-danger" : ""}`}
+                        title="Filtrs"
+                        onClick=${() => {
+                          if (filterRejectReasonActive) clearFilter("rejectReason");
+                          else setFiltersOpen((o) => !o);
+                          ensureHistoryOpen();
+                        }}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M22 3H2l8 9v7l4 2v-9l8-9z"></path>
+                        </svg>
+                      </button>
+                    </th>
                     ${anyActions ? html`<th>—</th>` : null}
                   </tr>
                   ${filtersOpen
@@ -3910,7 +3948,16 @@
                               <option value="bez saskaņošanas">bez saskaņošanas</option>
                               <option value="gaida">gaida</option>
                               <option value="saskaņots">saskaņots</option>
+                              <option value="noraidīts">noraidīts</option>
                       </select>
+                    </th>
+                    <th>
+                      <input
+                        class="input"
+                        value=${filters.rejectReason}
+                        onChange=${(e) => applyFilter("rejectReason", e.target.value)}
+                        placeholder="meklēt..."
+                      />
                     </th>
                     ${anyActions ? html`<th></th>` : null}
                   </tr>`
@@ -3934,10 +3981,14 @@
                           const typeName = a.type?.name ?? a.type_id ?? "—";
                           const isCitsType = isCitsSaskanotsTypeName(typeName);
                           const statusText = isCitsType
-                            ? (a.status === "approved" ? "saskaņots" : "gaida")
+                            ? (a.status === "approved" ? "saskaņots" : a.status === "rejected" ? "noraidīts" : "gaida")
                             : "bez saskaņošanas";
                           const statusBadgeClass = isCitsType
-                            ? (a.status === "approved" ? "badge-approved" : "badge-pending")
+                            ? (a.status === "approved"
+                                ? "badge-approved"
+                                : a.status === "rejected"
+                                  ? "badge-rejected"
+                                  : "badge-pending")
                             : "badge-approved";
                           return html`
                             <tr
@@ -3952,12 +4003,17 @@
                               <td style=${{ maxWidth: "140px", wordBreak: "break-word" }}>
                                 ${maybeMark(a.comment ?? "—", filters.comment)}
                               </td>
-                              <td>
+                              <td style=${{ maxWidth: "140px", wordBreak: "break-word" }}>
                                 <span class=${`badge ${statusBadgeClass}`}>
                                   ${maybeMark(statusText, filters.status)}
                                 </span>
                               </td>
-                              ${anyActions || (isCitsType && canApproveAbsences && a.status !== "approved")
+                              <td style=${{ maxWidth: "140px", wordBreak: "break-word" }}>
+                                ${isCitsType && String(a.status || "").toLowerCase() === "rejected"
+                                  ? maybeMark(extractRejectReason(a) || "—", filters.rejectReason)
+                                  : "—"}
+                              </td>
+                              ${anyActions || (isCitsType && canApproveAbsences && isPendingStatus(a.status))
                                 ? html`
                                     <td>
                                       <div
@@ -3990,7 +4046,7 @@
                                               </button>
                                             `
                                           : null}
-                                        ${isCitsType && canApproveAbsences && a.status !== "approved"
+                                        ${isCitsType && canApproveAbsences && isPendingStatus(a.status)
                                           ? html`
                                               <button
                                                 type="button"
@@ -4010,6 +4066,7 @@
                                                       .from("prombutnes_dati")
                                                       .update({
                                                         [ABSENCE_COLS_RUNTIME.status]: "approved",
+                                                        [ABSENCE_COLS_RUNTIME.reject_reason]: null,
                                                       })
                                                       .eq("id", a.id);
                                                     if (error) {
@@ -4038,7 +4095,7 @@
                                                         ? {
                                                             ...r,
                                                             status: "rejected",
-                                                            comment: (r.comment || "") + "\n[Noraidīts: " + trimmed + "]",
+                                                            reject_reason: trimmed,
                                                           }
                                                         : r
                                                     );
@@ -4052,8 +4109,7 @@
                                                       .from("prombutnes_dati")
                                                       .update({
                                                         [ABSENCE_COLS_RUNTIME.status]: "rejected",
-                                                        [ABSENCE_COLS_RUNTIME.comment]:
-                                                          (a.comment || "") + "\n[Noraidīts: " + trimmed + "]",
+                                                        [ABSENCE_COLS_RUNTIME.reject_reason]: trimmed,
                                                       })
                                                       .eq("id", a.id);
                                                     if (error) {
@@ -4478,8 +4534,8 @@
         const isManager = normalizeUserRole(role) === "admin";
         const canApprove = userCanApproveAbsences(role, userId, deputyEffectiveId);
         useEffect(() => {
-          if (promSub === "deputy" && !isManager) setPromSub("calendar");
-        }, [promSub, isManager, setPromSub]);
+          if (promSub === "deputy") setPromSub("calendar");
+        }, [promSub, setPromSub]);
         const promSubLabel =
           promSub === "calendar"
             ? "Kalendārs"
@@ -4570,19 +4626,6 @@
                     presetDate=${requestPresetDate}
                     onConsumePreset=${() => setRequestPresetDate("")}
                     canApproveRequests=${canApprove}
-                  />
-                `
-              : null}
-            ${promSub === "deputy" && isManager
-              ? html`
-                  <${DeputyDelegePanel}
-                    teamUsers=${teamUsers}
-                    approverCols=${approverCols}
-                    deputyUserId=${deputyUserId}
-                    deputyValidFrom=${deputyValidFrom}
-                    deputyValidTo=${deputyValidTo}
-                    onDeputyChange=${reloadUsersAndViews}
-                    currentUserId=${userId}
                   />
                 `
               : null}
@@ -4691,7 +4734,7 @@
         const { profile, loading: profileLoading } = useProfile(session?.user?.id);
         const [view, setView] = useState("home");
         const [promSub, setPromSub] = useState("calendar");
-        const showPromDeputyTab = profile?.role === "admin";
+        const showPromDeputyTab = false;
         const [citsToken, setCitsToken] = useState(() => readCitsTokenFromUrl());
         const title = useMemo(
           () => html`
