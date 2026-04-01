@@ -3611,11 +3611,11 @@
           return isCitsSaskanotsTypeName(typeName) && String(a?.status || "").toLowerCase() === "approved";
         }
         function canEditAbsence(a) {
-          const own = isOwnAbsence(a);
+          const own = approverView ? isOwnAbsence(a) : true;
           return (isAdmin || own) && !isApprovedCitsAbsence(a);
         }
         function canDeleteAbsence(a) {
-          const own = isOwnAbsence(a);
+          const own = approverView ? isOwnAbsence(a) : true;
           return isAdmin || own;
         }
         const anyActions = filteredList.some((a) => {
@@ -3680,10 +3680,15 @@
             [ABSENCE_COLS_RUNTIME.end_date]: form.end_date,
             [ABSENCE_COLS_RUNTIME.comment]: form.comment.trim() || null,
           };
-          let { error } = await supabase
+          let { data: updRow, error } = await supabase
             .from("prombutnes_dati")
             .update(restPayload)
-            .eq("id", editing);
+            .eq("id", editing)
+            .select("id")
+            .maybeSingle();
+          if (!error && !updRow) {
+            error = { message: "Ieraksts netika atjaunināts." };
+          }
           if (error) {
             const retry = await supabase
               .from("prombutnes_dati")
@@ -3731,7 +3736,15 @@
             onRefresh();
             return;
           }
-          let { error } = await supabase.from("prombutnes_dati").delete().eq("id", delId);
+          let { data: delRow, error } = await supabase
+            .from("prombutnes_dati")
+            .delete()
+            .eq("id", delId)
+            .select("id")
+            .maybeSingle();
+          if (!error && !delRow) {
+            error = { message: "Ieraksts netika dzēsts." };
+          }
           if (error) {
             const restRetry = await mutatePrombutnesDatiViaRest({ id: delId, method: "DELETE" });
             error = restRetry.error;
