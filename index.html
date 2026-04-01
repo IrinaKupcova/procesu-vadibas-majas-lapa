@@ -417,6 +417,28 @@
       const COL_USER_AMATS = "Amats";
       const COL_USER_ROLE = "LOMA";
       const COL_USER_APPROVER_STATUS = "Apstiprinātāja statuss";
+      const COL_USER_APPROVER_FROM = "Apstiprinājuma lomas periods no";
+      const COL_USER_APPROVER_TO = "Apstiprinājuma lomas periods līdz";
+      const USER_APPROVER_STATUS_ALIASES = [
+        "Apstiprinātāja statuss",
+        "Apstiprinataja statuss",
+        "apstiprinataja_statuss",
+        "apstiprinataja_status",
+        "approver_status",
+      ];
+      const USER_APPROVER_FROM_ALIASES = [
+        "Apstiprinājuma lomas periods no",
+        "Apstiprinajuma lomas periods no",
+        "apstiprinajuma_lomas_periods_no",
+        "approver_period_from",
+      ];
+      const USER_APPROVER_TO_ALIASES = [
+        "Apstiprinājuma lomas periods līdz",
+        "Apstiprinajuma lomas periods līdz",
+        "Apstiprinajuma lomas periods lidz",
+        "apstiprinajuma_lomas_periods_lidz",
+        "approver_period_to",
+      ];
       const TEAM_PAGE_SIZE = 20;
       const ABSENCE_ALT_KEYS = {
         user_id: ["user_id", "darbinieks_id", "darbinieka_id", "darbinieka id", "darbinieks", "vārds uzvārds", "vards uzvards"],
@@ -449,6 +471,35 @@
           if (hit && hit[1] != null) return hit[1];
         }
         return fallback;
+      }
+
+      function normalizeAliasKey(s) {
+        return String(s ?? "")
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/\s+/g, " ")
+          .trim();
+      }
+
+      function detectUserApproverColumns(usersLike) {
+        const rows = Array.isArray(usersLike) ? usersLike : [];
+        const keys = new Set();
+        for (const u of rows) {
+          if (!u || typeof u !== "object") continue;
+          for (const k of Object.keys(u)) keys.add(k);
+        }
+        const all = Array.from(keys);
+        const findByAliases = (aliases, fallback) => {
+          const normAliases = aliases.map(normalizeAliasKey);
+          const hit = all.find((k) => normAliases.includes(normalizeAliasKey(k)));
+          return hit || fallback;
+        };
+        return {
+          status: findByAliases(USER_APPROVER_STATUS_ALIASES, COL_USER_APPROVER_STATUS),
+          from: findByAliases(USER_APPROVER_FROM_ALIASES, COL_USER_APPROVER_FROM),
+          to: findByAliases(USER_APPROVER_TO_ALIASES, COL_USER_APPROVER_TO),
+        };
       }
 
       function detectAbsenceColumnsFromRow(row) {
@@ -725,21 +776,10 @@
           u?.email ?? u?.[COL_USER_IMAIL] ?? u?.["e-mail"] ?? u?.["e-pasts"] ?? u?.["i-mail"] ?? ""
         ).trim();
         const amats = String(u?.[COL_USER_AMATS] ?? u?.Amats ?? u?.amats ?? "").trim();
-        const approverRaw =
-          u?.[COL_USER_APPROVER_STATUS] ??
-          u?.["Apstiprinataja statuss"] ??
-          u?.apstiprinataja_statuss ??
-          u?.apstiprinataja_status ??
-          u?.approver_status ??
-          u?.is_approver;
-        const approverStatus =
-          approverRaw === true ||
-          approverRaw === 1 ||
-          String(approverRaw ?? "").trim().toLowerCase() === "true" ||
-          String(approverRaw ?? "").trim().toLowerCase() === "1" ||
-          String(approverRaw ?? "").trim().toLowerCase() === "jā" ||
-          String(approverRaw ?? "").trim().toLowerCase() === "ja" ||
-          String(approverRaw ?? "").trim().toLowerCase() === "yes";
+        const approverRaw = pickByAliases(u, USER_APPROVER_STATUS_ALIASES, u?.is_approver);
+        const approverMode = normalizeApproverMode(approverRaw);
+        const approverFrom = String(pickByAliases(u, USER_APPROVER_FROM_ALIASES, "") ?? "").trim();
+        const approverTo = String(pickByAliases(u, USER_APPROVER_TO_ALIASES, "") ?? "").trim();
         return {
           ...u,
           id: String(u?.id ?? ""),
@@ -751,8 +791,12 @@
           [COL_USER_AMATS]: amats || null,
           [COL_USER_ROLE]: userRoleValue(u),
           role: userRoleValue(u),
-          [COL_USER_APPROVER_STATUS]: approverStatus,
-          approver_status: approverStatus,
+          [COL_USER_APPROVER_STATUS]: approverMode,
+          approver_status: approverMode,
+          [COL_USER_APPROVER_FROM]: approverFrom || null,
+          [COL_USER_APPROVER_TO]: approverTo || null,
+          approver_period_from: approverFrom || null,
+          approver_period_to: approverTo || null,
         };
       }
 
@@ -953,10 +997,89 @@
         }
       }
 
+      function normalizeAuditLogRecord(r) {
+        if (!r || typeof r !== "object") return null;
+        const ts =
+          r.ts ??
+          r.created_at ??
+          r.laiks ??
+          r["Laiks"] ??
+          r.timestamp ??
+          null;
+        const actorName =
+          r.actor_name ??
+          r.user_name ??
+          r.lietotajs ??
+          r["Lietotājs"] ??
+          r["Lietotajs"] ??
+          null;
+        const action =
+          r.action ??
+          r.darbiba ??
+          r["Darbība"] ??
+          r["Darbiba"] ??
+          null;
+        const details =
+          r.details ??
+          r.detalas ??
+          r["Detaļas"] ??
+          r["Detalas"] ??
+          null;
+        return {
+          ...r,
+          id: r.id ?? crypto?.randomUUID?.() ?? `${Date.now()}_${Math.random()}`,
+          ts: ts ? String(ts) : null,
+          actor_name: actorName ? String(actorName) : "—",
+          action: action ? String(action) : "—",
+          details: details ? String(details) : "—",
+        };
+      }
+
+      async function fetchAuditLogs() {
+        const local = getChangeLog().map(normalizeAuditLogRecord).filter(Boolean);
+        if (isLocalMode() || !supabase) return local;
+        const q1 = await supabase.from("Auditacijas_vesture").select("*").order("ts", { ascending: false });
+        let rows = q1.data;
+        let err = q1.error;
+        if (err) {
+          const q2 = await supabase.from("Auditacijas_vesture").select("*").order("created_at", { ascending: false });
+          rows = q2.data;
+          err = q2.error;
+        }
+        if (err) {
+          console.warn("[audit.fetch]", err);
+          return local;
+        }
+        const dbLogs = (rows ?? []).map(normalizeAuditLogRecord).filter(Boolean);
+        return dbLogs.length ? dbLogs : local;
+      }
+
+      async function insertAuditLog(row) {
+        if (isLocalMode() || !supabase) return;
+        const payloadA = {
+          ts: row.ts,
+          action: row.action,
+          details: row.details,
+          actor_name: row.actor_name,
+          actor_email: row.actor_email || null,
+          actor_id: row.actor_id || null,
+        };
+        let { error } = await supabase.from("Auditacijas_vesture").insert(payloadA);
+        if (!error) return;
+        const payloadB = {
+          Laiks: row.ts,
+          "Darbība": row.action,
+          "Detaļas": row.details,
+          "Lietotājs": row.actor_name,
+        };
+        const retry = await supabase.from("Auditacijas_vesture").insert(payloadB);
+        if (retry.error) console.warn("[audit.insert]", retry.error);
+      }
+
       function pushChangeLog(action, details) {
         const actor = currentLocalActor();
         const logs = getChangeLog();
-        logs.unshift({
+        const row = {
           id: crypto?.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random(),
           ts: new Date().toISOString(),
           action: String(action || ""),
@@ -964,34 +1087,47 @@
           actor_name: actor.name || "—",
           actor_email: actor.email || "",
           actor_id: actor.id || "",
-        });
+        };
+        logs.unshift(row);
         // paturam pēdējos 1500 ierakstus
         localStorage.setItem(LS_CHANGE_LOG, JSON.stringify(logs.slice(0, 1500)));
+        void insertAuditLog(row);
       }
 
-      function isUserMarkedApprover(u) {
-        const raw =
-          u?.[COL_USER_APPROVER_STATUS] ??
-          u?.["Apstiprinataja statuss"] ??
-          u?.approver_status ??
-          u?.apstiprinataja_statuss ??
-          u?.apstiprinataja_status;
-        return (
-          raw === true ||
-          raw === 1 ||
-          String(raw ?? "").trim().toLowerCase() === "true" ||
-          String(raw ?? "").trim().toLowerCase() === "1" ||
-          String(raw ?? "").trim().toLowerCase() === "jā" ||
-          String(raw ?? "").trim().toLowerCase() === "ja" ||
-          String(raw ?? "").trim().toLowerCase() === "yes"
-        );
+      function normalizeApproverMode(raw) {
+        const v = String(raw ?? "").trim().toLowerCase();
+        if (!v) return "none";
+        if (v === "pec noklusejuma vienmer" || v === "pēc noklusējuma vienmēr") return "default";
+        if (v === "uz noteikto periodu" || v === "uz noteilto periodu") return "period";
+        if (v === "true" || v === "1" || v === "ja" || v === "jā" || v === "yes") return "period";
+        return "none";
+      }
+
+      function resolveManagerUser(teamUsers) {
+        const list = Array.isArray(teamUsers) ? teamUsers : [];
+        return list.find((u) => userDisplayName(u).toLowerCase().trim() === DEFAULT_MANAGER_NAME.toLowerCase().trim()) ?? null;
       }
 
       function resolveBaseApproverUser(teamUsers) {
         const list = Array.isArray(teamUsers) ? teamUsers : [];
-        const marked = list.find((u) => isUserMarkedApprover(u));
-        if (marked) return marked;
-        return list.find((u) => userDisplayName(u).toLowerCase().trim() === DEFAULT_MANAGER_NAME.toLowerCase().trim()) ?? null;
+        const manager = resolveManagerUser(list);
+        const defaultMarked = list.find((u) => normalizeApproverMode(u?.[COL_USER_APPROVER_STATUS]) === "default");
+        return defaultMarked ?? manager ?? null;
+      }
+
+      function resolveActiveDeputyUser(teamUsers, todayStr = new Date().toISOString().slice(0, 10)) {
+        const list = Array.isArray(teamUsers) ? teamUsers : [];
+        const manager = resolveManagerUser(list);
+        return (
+          list.find((u) => {
+            if (manager && String(u.id) === String(manager.id)) return false;
+            if (normalizeApproverMode(u?.[COL_USER_APPROVER_STATUS]) !== "period") return false;
+            const fromStr = String(u?.[COL_USER_APPROVER_FROM] ?? u?.approver_period_from ?? "").trim();
+            const toStr = String(u?.[COL_USER_APPROVER_TO] ?? u?.approver_period_to ?? "").trim();
+            if (!fromStr || !toStr) return false;
+            return fromStr <= todayStr && todayStr <= toStr;
+          }) ?? null
+        );
       }
 
       function resolveNotifyEmail(teamUsers, deputyUserId) {
@@ -1012,8 +1148,8 @@
         if (!sessionUserId) return false;
         const users = window.KOMANDA?.loadTeamUsers?.() ?? [];
         const list = Array.isArray(users) ? users : [];
-        const approver = resolveBaseApproverUser(list);
-        return approver ? String(approver.id) === String(sessionUserId) : false;
+        const manager = resolveManagerUser(list);
+        return manager ? String(manager.id) === String(sessionUserId) : false;
       }
 
       /** Cits saskaņošana: tikai noklusētais vadītājs vai aktīvais aizvietotājs. */
@@ -2618,32 +2754,50 @@
               );
               return;
             }
-            const { error } = await supabase
-              .from("pdd_deputy_state")
-              .upsert(
-                {
-                  id: 1,
-                  deputy_user_id: nextId,
-                  updated_by: currentUserId,
-                  updated_at: new Date().toISOString(),
-                },
-                { onConflict: "id" }
-              );
-            if (error) {
-              console.warn("[pdd_deputy_state save warning]", error);
+            const managerUser = resolveManagerUser(teamUsers ?? []);
+            if (!managerUser) {
+              setMsg("Neizdevās atrast pamatvadītāju users tabulā.");
+              return;
             }
-            const managerUser =
-              (teamUsers ?? []).find(
-                (u) => userDisplayName(u).toLowerCase().trim() === DEFAULT_MANAGER_NAME.toLowerCase().trim()
-              ) ?? null;
+            const approverCols = detectUserApproverColumns(teamUsers ?? []);
+            const clearAll = await supabase
+              .from("users")
+              .update({
+                [approverCols.status]: null,
+                [approverCols.from]: null,
+                [approverCols.to]: null,
+              })
+              .not("id", "is", null);
+            if (clearAll.error) {
+              setMsg(clearAll.error.message);
+              return;
+            }
+            const markManager = await supabase
+              .from("users")
+              .update({
+                [approverCols.status]: "pec noklusējuma vienmēr",
+                [approverCols.from]: null,
+                [approverCols.to]: null,
+              })
+              .eq("id", managerUser.id);
+            if (markManager.error) {
+              setMsg(markManager.error.message);
+              return;
+            }
             const targetApproverId = nextId || managerUser?.id || null;
-            if (targetApproverId) {
-              const oldApprovers = (teamUsers ?? []).filter((u) => isUserMarkedApprover(u));
-              for (const u of oldApprovers) {
-                if (String(u.id) === String(targetApproverId)) continue;
-                await supabase.from("users").update({ [COL_USER_APPROVER_STATUS]: false }).eq("id", u.id);
+            if (targetApproverId && nextId) {
+              const setDeputy = await supabase
+                .from("users")
+                .update({
+                  [approverCols.status]: "uz noteikto periodu",
+                  [approverCols.from]: fromStr,
+                  [approverCols.to]: toStr,
+                })
+                .eq("id", targetApproverId);
+              if (setDeputy.error) {
+                setMsg(setDeputy.error.message);
+                return;
               }
-              await supabase.from("users").update({ [COL_USER_APPROVER_STATUS]: true }).eq("id", targetApproverId);
             }
             await onDeputyChange();
               setMsg(nextId ? "Apstiprinātājs saglabāts norādītajam periodam." : "Atiestatīts uz pamatvadītāju.");
@@ -2691,7 +2845,7 @@
             <p style=${{ margin: "0 0 0.65rem", fontSize: "0.8rem", color: "var(--muted)" }}>
               Noklusējuma apstiprinātājs — <strong>${DEFAULT_MANAGER_NAME}</strong> (termiņa lauki nerādās). Citu personu
               izvēlei obligāts derīguma periods. Pēc <code>līdz</code> datuma beigām sistēma automātiski atiestata uz
-              pamatvadītāju (DB tiek notīrīta, ielādējot lapu).
+              pamatvadītāju.
             </p>
             <form class="stack" onSubmit=${saveForm}>
               <div class="field">
@@ -2770,15 +2924,19 @@
           let cancelled = false;
           setDeputyLoaded(false);
           supabase
-            .from("pdd_deputy_state")
-            .select("deputy_user_id")
-            .eq("id", 1)
-            .maybeSingle()
+            .from("users")
+            .select("*")
             .then(({ data, error }) => {
               if (cancelled) return;
-              if (error) console.error(error);
-              const eff = effectiveDeputyUserId(data?.deputy_user_id ?? null, null, null);
-              setDeputyUserId(eff);
+              if (error) {
+                console.error(error);
+                setDeputyUserId(null);
+                setDeputyLoaded(true);
+                return;
+              }
+              const users = (data ?? []).map(normalizeTeamUserRecord);
+              const activeDeputy = resolveActiveDeputyUser(users);
+              setDeputyUserId(activeDeputy?.id ? String(activeDeputy.id) : null);
               setDeputyLoaded(true);
             });
           return () => {
@@ -3892,24 +4050,10 @@
           if (uErr) console.error(uErr);
           const normalizedUsers = (urows ?? []).map(normalizeTeamUserRecord);
           setTeamUsers(normalizedUsers);
-          const { data: drow, error: dErr } = await supabase
-            .from("pdd_deputy_state")
-            .select("deputy_user_id")
-            .eq("id", 1)
-            .maybeSingle();
-          if (dErr) console.error(dErr);
-          const managerUser =
-            normalizedUsers.find(
-              (u) => userDisplayName(u).toLowerCase().trim() === DEFAULT_MANAGER_NAME.toLowerCase().trim()
-            ) ?? null;
-          const baseApprover = resolveBaseApproverUser(normalizedUsers);
-          const fromUsersDeputy =
-            baseApprover && managerUser && String(baseApprover.id) !== String(managerUser.id) ? String(baseApprover.id) : null;
-          // Galvenais avots: users."Apstiprinātāja statuss".
-          // Ja neviens nav atzīmēts kā apstiprinātājs, paliek pamatvadītājs (deputy = null).
-          setDeputyUserId(fromUsersDeputy || null);
-          setDeputyValidFrom(null);
-          setDeputyValidTo(null);
+          const activeDeputy = resolveActiveDeputyUser(normalizedUsers);
+          setDeputyUserId(activeDeputy?.id ? String(activeDeputy.id) : null);
+          setDeputyValidFrom(activeDeputy?.[COL_USER_APPROVER_FROM] ?? null);
+          setDeputyValidTo(activeDeputy?.[COL_USER_APPROVER_TO] ?? null);
         }, []);
         useEffect(() => {
           void loadTeamAndDeputy();
@@ -4029,7 +4173,6 @@
             .channel("pdd-prombutnes-live")
             .on("postgres_changes", { event: "*", schema: "public", table: "prombutnes_dati" }, bump)
             .on("postgres_changes", { event: "*", schema: "public", table: "users" }, bump)
-            .on("postgres_changes", { event: "*", schema: "public", table: "pdd_deputy_state" }, bump)
             .subscribe();
           return () => {
             void supabase.removeChannel(ch);
@@ -4167,9 +4310,14 @@
         const [page, setPage] = useState(0);
         const PAGE_SIZE = 20;
 
-        useEffect(() => {
-          setLogs(getChangeLog());
+        const refreshLogs = useCallback(async () => {
+          const data = await fetchAuditLogs();
+          setLogs(data);
         }, []);
+
+        useEffect(() => {
+          void refreshLogs();
+        }, [refreshLogs]);
 
         const total = logs.length;
         const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -4191,7 +4339,7 @@
           <section class="list-panel">
             <div class="row" style=${{ justifyContent: "space-between", alignItems: "center", marginBottom: "0.65rem" }}>
               <h2 style=${{ margin: 0, fontSize: "1rem" }}>Auditācijas vēsture</h2>
-              <button type="button" class="btn btn-ghost btn-small" onClick=${() => setLogs(getChangeLog())}>
+              <button type="button" class="btn btn-ghost btn-small" onClick=${() => void refreshLogs()}>
                 Atjaunot
               </button>
             </div>
