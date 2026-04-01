@@ -3700,18 +3700,6 @@
               Beigu_datums: form.end_date,
               Komentārs: form.comment.trim() || null,
             },
-            {
-              type: Number(form.type_id),
-              "Sākuma_datums": form.start_date,
-              "Beigu_datums": form.end_date,
-              Komentārs: form.comment.trim() || null,
-            },
-            {
-              "Prombūtnes veids": Number(form.type_id),
-              "Sākuma datums": form.start_date,
-              "Beigu datums": form.end_date,
-              "Komentāri": form.comment.trim() || null,
-            },
           ];
           let error = null;
           for (const p of payloadVariants) {
