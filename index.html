@@ -911,6 +911,33 @@
         await ensureAuthPromise;
       }
 
+      async function fetchUsersDirectFromRest() {
+        const cfg = loadConfig();
+        const baseUrl = normalizeProjectUrl(cfg.url);
+        const apiKey = String(cfg.key || "").trim();
+        if (!baseUrl || !apiKey) return { data: null, error: new Error("Missing Supabase config") };
+        try {
+          const resp = await fetch(
+            `${baseUrl}/rest/v1/users?select=*&order=${encodeURIComponent(COL_USER_NAME)}.asc`,
+            {
+              method: "GET",
+              headers: {
+                apikey: apiKey,
+                Authorization: `Bearer ${apiKey}`,
+              },
+            }
+          );
+          if (!resp.ok) {
+            const txt = await resp.text();
+            return { data: null, error: new Error(txt || `HTTP ${resp.status}`) };
+          }
+          const rows = await resp.json();
+          return { data: Array.isArray(rows) ? rows : [], error: null };
+        } catch (e) {
+          return { data: null, error: e };
+        }
+      }
+
       function readCitsTokenFromUrl() {
         try {
           return new URL(window.location.href).searchParams.get("cits") || "";
@@ -995,6 +1022,11 @@
           const r2 = await supabaseClient.from("users").select("*");
           rows = r2.data;
           err = r2.error;
+        }
+        if (err) {
+          const rr = await fetchUsersDirectFromRest();
+          rows = rr.data;
+          err = rr.error;
         }
         if (err) {
           const p1 = await supabaseClient.from("profiles").select("*");
@@ -4222,6 +4254,11 @@
             const uq2 = await supabase.from("users").select("*");
             urows = uq2.data;
             uErr = uq2.error;
+          }
+          if (uErr) {
+            const rr = await fetchUsersDirectFromRest();
+            urows = rr.data;
+            uErr = rr.error;
           }
           if (uErr) {
             const pq = await supabase.from("profiles").select("*");
