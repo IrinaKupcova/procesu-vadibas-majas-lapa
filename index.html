@@ -2164,7 +2164,7 @@
                           >
                             ${userDisplayName(a.employee) !== "—"
                               ? userDisplayName(a.employee)
-                              : "?"}{" "}
+                              : "?"}
                             · ${a.type?.name ?? ""}${
                               isCitsType && periodLabel
                                 ? html`
@@ -2309,14 +2309,23 @@
                 },
               });
               if (cancelled) return;
-              setUsers(list);
+              const safeList = Array.isArray(list) && list.length
+                ? list
+                : [{
+                    id: String(userId || ""),
+                    full_name: localDisplayName(),
+                    [COL_USER_NAME]: localDisplayName(),
+                    [COL_USER_IMAIL]: "",
+                    [COL_USER_AMATS]: "",
+                  }];
+              setUsers(safeList);
               const uid = String(userId);
-              const selfUser = list.find((u) => String(u.id) === uid) ?? null;
+              const selfUser = safeList.find((u) => String(u.id) === uid) ?? null;
               const selfId = selfUser?.id ?? uid;
-              const defaultId = selfId || (list[0]?.id ?? "");
+              const defaultId = selfId || (safeList[0]?.id ?? "");
               setSelectedUserId((prev) => {
                 if (!isManager) return defaultId;
-                if (prev && list.some((u) => String(u.id) === String(prev))) return prev;
+                if (prev && safeList.some((u) => String(u.id) === String(prev))) return prev;
                 return defaultId;
               });
             })();
@@ -2404,7 +2413,11 @@
           }
           async function handleSubmit(e) {
             e.preventDefault();
-            if (!typeId || !selectedUserId) return;
+            const finalUserId = String(selectedUserId || userId || "").trim();
+            if (!typeId || !finalUserId) {
+              alert("Nav lietotāju atlase");
+              return;
+            }
             const typeObj = types.find((t) => String(t.id) === String(typeId));
             const isCitsFlow = typeObj && isCitsSaskanotsTypeName(typeObj.name);
             setBusy(true);
@@ -2420,7 +2433,7 @@
                 const { data: inserted, error: insErr } = await supabase
                   .from("prombutnes_dati")
                   .insert({
-                    "Vārds uzvārds": selectedUserId,
+                    "Vārds uzvārds": finalUserId,
                     type: Number(typeId),
                     Sakuma_datums: startDate,
                     Beigu_datums: endDate,
@@ -2445,7 +2458,7 @@
                 const rowId = inserted?.id;
                 pushChangeLog(
                   "prombutne.cits_pieteikts",
-                  `Darbinieks ${selectedUserId}: ${startDate} — ${endDate}`
+                  `Darbinieks ${finalUserId}: ${startDate} — ${endDate}`
                 );
                 void callPddResendApi({
                   action: "cits_absence_created",
@@ -2473,7 +2486,7 @@
                 setCitsFromTime("09:00");
                 setCitsToTime("17:00");
                 setTypeId("");
-                setSelectedUserId((prev) => prev || userId);
+                setSelectedUserId((prev) => prev || String(userId || ""));
                 onCreated();
                 return;
               }
@@ -2482,7 +2495,7 @@
                 const rows = getLocalAbsences();
                 rows.push({
                   id: crypto.randomUUID(),
-                  user_id: selectedUserId,
+                  user_id: finalUserId,
                   type_id: Number(typeId),
                   start_date: startDate,
                   end_date: endDate,
@@ -2495,13 +2508,13 @@
                 setLocalAbsences(rows);
                 pushChangeLog(
                   "prombutne.pievienota",
-                  `Darbinieks ${selectedUserId}: ${startDate} — ${endDate}`
+                  `Darbinieks ${finalUserId}: ${startDate} — ${endDate}`
                 );
               } else {
                 const nowIso = new Date().toISOString();
-                const selectedUser = (users ?? []).find((u) => String(u?.id) === String(selectedUserId)) ?? null;
+                const selectedUser = (users ?? []).find((u) => String(u?.id) === String(finalUserId)) ?? null;
                 const error = await insertAbsenceWithFallback({
-                  userId: selectedUserId,
+                  userId: finalUserId,
                   userName: selectedUser ? userDisplayName(selectedUser) : "",
                   typeId: Number(typeId),
                   startDate,
@@ -2531,7 +2544,7 @@
               <h2>Prombūtnes pieteikums</h2>
               <p style=${{ margin: "0 0 0.75rem", fontSize: "0.82rem", color: "var(--muted)" }}>
                 <strong>Cits (ar vadītāja saskaņojumu)</strong> — obligāta e-pasta saskaņošana: pieprasījums un saite uz
-                {" "}<strong>katrina.jirgensone@vid.gov.lv</strong>. Pārējie veidi tiek ierakstīti kā apstiprināti un
+                <strong> katrina.jirgensone@vid.gov.lv</strong>. Pārējie veidi tiek ierakstīti kā apstiprināti un
                 uzreiz redzami kalendārā (bez atsevišķa akcepta soļa šeit).
               </p>
               <form class="stack" onSubmit=${handleSubmit}>
@@ -2541,7 +2554,7 @@
                     id="employee"
                     class="select"
                     required
-                    value=${selectedUserId}
+                    value=${selectedUserId || String(userId || "")}
                     onChange=${(ev) => setSelectedUserId(ev.target.value)}
                     disabled=${!isManager}
                   >
@@ -3698,6 +3711,12 @@
               return true;
             });
           }, [sortedList, filters, approverView, userId, periodRange, highlightAbsenceId]);
+          useEffect(() => {
+            // Ja "Šis mēnesis" ir tukšs, bet kopā ieraksti ir, automātiski parādām visu periodu.
+            if (periodMode === "month" && filteredList.length === 0 && sortedList.length > 0) {
+              setPeriodMode("all");
+            }
+          }, [periodMode, filteredList.length, sortedList.length]);
           const historyTotal = filteredList.length;
           const historyTotalPages = Math.max(1, Math.ceil(historyTotal / HIST_PAGE_SIZE));
           const historySafePage = Math.max(0, Math.min(histPage, historyTotalPages - 1));
