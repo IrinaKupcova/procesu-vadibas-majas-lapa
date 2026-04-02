@@ -5,13 +5,26 @@ begin;
 
 alter table public.users enable row level security;
 
--- Noņem veco “update own” politiku, jo tā ļauj user labot sevi.
-drop policy if exists "users_update_own" on public.users;
+-- Noņemam VISAS INSERT/UPDATE/DELETE politikas, lai nepaliek konflikti
+-- (select ļaujam pēc esošajām).
+do $$
+declare
+  p record;
+begin
+  for p in
+    select policyname, cmd
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'users'
+      and cmd in ('INSERT', 'UPDATE', 'DELETE')
+  loop
+    execute format('drop policy if exists %I on public.users', p.policyname);
+  end loop;
+end $$;
 
--- Admin CRUD
-drop policy if exists "users_insert_admin" on public.users;
-drop policy if exists "users_update_admin" on public.users;
-drop policy if exists "users_delete_admin" on public.users;
+-- Iepriekšējā migrācijā var būt “anonam viss atļauts” (pdd_anon_users_all).
+-- Ja šī policy paliek, parastam lietotājam varētu tikt atļauts CRUD.
+drop policy if exists pdd_anon_users_all on public.users;
 
 create policy "users_insert_admin"
   on public.users
@@ -20,7 +33,18 @@ create policy "users_insert_admin"
     exists (
       select 1 from public.users u
       where u.id = auth.uid()
-        and lower(trim(coalesce(u.role, ''))) = 'admin'
+        and lower(trim(coalesce(u.role, ''))) in ('admin', 'manager')
+    )
+  );
+
+create policy "users_insert_admin_anon"
+  on public.users
+  for insert to anon
+  with check (
+    exists (
+      select 1 from public.users u
+      where u.id = auth.uid()
+        and lower(trim(coalesce(u.role, ''))) in ('admin', 'manager')
     )
   );
 
@@ -31,14 +55,32 @@ create policy "users_update_admin"
     exists (
       select 1 from public.users u
       where u.id = auth.uid()
-        and lower(trim(coalesce(u.role, ''))) = 'admin'
+        and lower(trim(coalesce(u.role, ''))) in ('admin', 'manager')
     )
   )
   with check (
     exists (
       select 1 from public.users u
       where u.id = auth.uid()
-        and lower(trim(coalesce(u.role, ''))) = 'admin'
+        and lower(trim(coalesce(u.role, ''))) in ('admin', 'manager')
+    )
+  );
+
+create policy "users_update_admin_anon"
+  on public.users
+  for update to anon
+  using (
+    exists (
+      select 1 from public.users u
+      where u.id = auth.uid()
+        and lower(trim(coalesce(u.role, ''))) in ('admin', 'manager')
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.users u
+      where u.id = auth.uid()
+        and lower(trim(coalesce(u.role, ''))) in ('admin', 'manager')
     )
   );
 
@@ -49,9 +91,28 @@ create policy "users_delete_admin"
     exists (
       select 1 from public.users u
       where u.id = auth.uid()
-        and lower(trim(coalesce(u.role, ''))) = 'admin'
+        and lower(trim(coalesce(u.role, ''))) in ('admin', 'manager')
     )
   );
+
+create policy "users_delete_admin_anon"
+  on public.users
+  for delete to anon
+  using (
+    exists (
+      select 1 from public.users u
+      where u.id = auth.uid()
+        and lower(trim(coalesce(u.role, ''))) in ('admin', 'manager')
+    )
+  );
+
+-- update/insert/del politikas lieto EXISTS ar public.users u,
+-- tāpēc anonam vajag atļaut vismaz savu rindu SELECT (citādi EXISTS var būt tukšs).
+drop policy if exists "users_select_anon_self" on public.users;
+create policy "users_select_anon_self"
+  on public.users
+  for select to anon
+  using (id = auth.uid());
 
 commit;
 

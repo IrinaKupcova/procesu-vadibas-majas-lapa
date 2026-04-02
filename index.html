@@ -223,9 +223,9 @@
           border-radius: 4px;
           padding: 1px 4px;
           margin-top: 2px;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
+          white-space: normal;
+          overflow: visible;
+          text-overflow: clip;
           font-size: 0.65rem;
         }
         .list-panel {
@@ -964,6 +964,16 @@
           : null;
         let ensureAuthPromise = null;
 
+        // Debug palīgs: pārbaudīt pārlūkā, vai ir sesija un kāds ir uid.
+        // Izsauc DevTools konsolē: await PDD_DEBUG_AUTH()
+        window.PDD_DEBUG_AUTH = async function PDD_DEBUG_AUTH() {
+          if (!supabase) return { ok: false, reason: "no_supabase" };
+          const s1 = await supabase.auth.getSession();
+          const uid = s1?.data?.session?.user?.id ?? null;
+          const token = s1?.data?.session?.access_token ?? null;
+          return { ok: Boolean(uid && token), uid, hasToken: Boolean(token), error: s1?.error?.message ?? null };
+        };
+
         async function callPddResendApi(body) {
           if (TIKAI_VIENKARSI_SKATS || isLocalMode() || !supabase) return { skipped: true };
           const apiUrl = getPddResendApiUrl();
@@ -1000,9 +1010,9 @@
         }
 
         async function ensureDbReadableSession() {
-          if (isLocalMode() || !supabase) return;
-          const { data, error } = await supabase.auth.getSession();
-          if (!error && data?.session) return;
+          if (isLocalMode() || !supabase) return true;
+          const s1 = await supabase.auth.getSession();
+          if (!s1.error && s1.data?.session?.access_token) return true;
           if (!ensureAuthPromise) {
             ensureAuthPromise = (async () => {
               const { error: anonErr } = await supabase.auth.signInAnonymously();
@@ -1012,6 +1022,9 @@
             });
           }
           await ensureAuthPromise;
+          const s2 = await supabase.auth.getSession();
+          if (!s2.error && s2.data?.session?.access_token) return true;
+          return false;
         }
 
         async function fetchUsersDirectFromRest() {
@@ -2025,17 +2038,22 @@
             if (!from && to) return `Laikā līdz ${to}`;
 
             // Fallback: ja vēl ir tikai komentāra prefikss (vecā datu forma).
-            const m = /^Laikā no\s+(\d{1,2}:\d{2})\s+līdz\s+(\d{1,2}:\d{2})\b/i.exec(c);
+            const m = /^(Laika|Laikā)\s+no\s+(\d{1,2}:\d{2})\s+(līdz|lidz)\s+(\d{1,2}:\d{2})\b/i.exec(c);
             if (m) {
-              const f = normTime(m[1]);
-              const t = normTime(m[2]);
+              const f = normTime(m[2]);
+              const t = normTime(m[3]);
               if (f && t) return `Laikā no ${f} līdz ${t}`;
             }
             return "";
           }
           const entriesForDay = (d) => {
             const key = dayKey(d);
-            return absences.filter((a) => key >= a.start_date && key <= a.end_date);
+            return absences.filter((a) => {
+              const s = String(a?.start_date ?? "").slice(0, 10);
+              const e = String(a?.end_date ?? "").slice(0, 10);
+              if (!s || !e) return false;
+              return key >= s && key <= e;
+            });
           };
           const title = format(month, "LLLL yyyy", { locale: lv });
           return html`
@@ -2090,13 +2108,14 @@
                         const notAllDay = Boolean(periodLabel) && String(periodLabel).toLowerCase() !== "visa diena";
                         const pendingMark = (() => {
                           const fn = globalThis.PDDPrombutnesVesture?.isPendingCitsAbsence;
-                          if (typeof fn === "function") return Boolean(fn(a));
+                          const base = typeof fn === "function" ? Boolean(fn(a)) : false;
                           const typeName = a?.type?.name ?? "";
                           const st = String(a?.status ?? "").trim().toLowerCase();
                           const isCitsResolved =
                             isCitsSaskanotsTypeName(typeName) ||
                             (citsTypeId != null && String(a?.type_id) === String(citsTypeId));
-                          return isCitsResolved && (st === "pending" || st === "pending_manager" || st === "gaida");
+                          const fallback = isCitsResolved && (st === "pending" || st === "pending_manager" || st === "gaida");
+                          return base || fallback;
                         })();
                         return html`
                           <span
@@ -2783,7 +2802,7 @@
             role: "user",
           });
           const [busy, setBusy] = useState(false);
-          const [delId, setDelId] = useState(null);
+          const [authHint, setAuthHint] = useState("");
           const isLocalTeams = false;
           const total = users?.length ?? 0;
           const totalPages = Math.max(1, Math.ceil(total / TEAM_PAGE_SIZE) || 1);
@@ -2825,9 +2844,21 @@
                 await onReload();
                 return;
               }
-              const { error } = await supabase.from("users").update(payload).eq("id", editing);
+              // Nodrošina, ka ir Supabase sesija (JWT), citādi RLS redz auth.uid() = null.
+              const okSess = await ensureDbReadableSession();
+              if (!okSess) {
+                alert(
+                  "Nevar izveidot Supabase sesiju (anon sign-in). Supabase projektā ieslēdz: Authentication → Providers → Anonymous sign-ins."
+                );
+                return;
+              }
+              const { data, error } = await supabase.from("users").update(payload).eq("id", editing).select("id");
               if (error) {
                 alert(error.message);
+                return;
+              }
+              if (!data || data.length === 0) {
+                alert("Netika atjaunināts (RLS vai 0 rindas).");
                 return;
               }
               setEditing(null);
@@ -2843,10 +2874,41 @@
               return;
             }
             const isLocal = TIKAI_VIENKARSI_SKATS || !supabase;
-            const id = isLocal ? (crypto?.randomUUID ? crypto.randomUUID() : String(Date.now())) : addForm.id.trim();
-            if (!isLocal && !isValidUuid(id)) {
-              alert("Lietotāja ID jābūt derīgam UUID (Supabase → Authentication → Users).");
-              return;
+            let id = isLocal ? (crypto?.randomUUID ? crypto.randomUUID() : String(Date.now())) : "";
+            if (!isLocal) {
+              const okSess = await ensureDbReadableSession();
+              if (!okSess) {
+                setAuthHint("Nav Supabase sesijas (Anon). Ieslēdz Anonymous sign-ins Supabase projektā un pārlādē lapu.");
+                alert("Nav Supabase sesijas. Ieslēdz Anonymous sign-ins un pārlādē lapu.");
+                return;
+              }
+              const s = await supabase.auth.getSession();
+              const uid = s?.data?.session?.user?.id ?? null;
+              if (!uid) {
+                setAuthHint("Sesija nav izveidota (uid nav). Pārlādē lapu un mēģini vēlreiz.");
+                alert("Sesija nav izveidota (uid nav). Pārlādē lapu un mēģini vēlreiz.");
+                return;
+              }
+              // Pārbaude: vai šim uid ir admin/manager loma users tabulā (citādi RLS bloķēs INSERT).
+              const me = await supabase.from("users").select("role").eq("id", uid).maybeSingle();
+              const myRole = String(me?.data?.role ?? "").trim().toLowerCase();
+              if (me?.error || !myRole || (myRole !== "admin" && myRole !== "manager")) {
+                setAuthHint("Pievienot var tikai Admin/manager. Pašlaik Supabase sesija nav ar admin/manager lomu.");
+                alert("Pievienot var tikai Admin/manager. Pašlaik Supabase sesija nav ar admin/manager lomu.");
+                return;
+              }
+              const entered = String(addForm.imail ?? "").trim();
+              if (!entered || !entered.includes("@")) {
+                alert("Ievadi e-pastu.");
+                return;
+              }
+              let foundId = "";
+              const { data: rpcRows, error: rpcErr } = await supabase.rpc("pdd_lookup_user_by_email", { p_email: entered });
+              if (!rpcErr) {
+                const r0 = Array.isArray(rpcRows) ? rpcRows[0] : null;
+                foundId = String(r0?.user_id ?? r0?.pdd_lookup_user_by_email ?? r0?.userId ?? "").trim();
+              }
+              id = isValidUuid(foundId) ? foundId : (crypto?.randomUUID ? crypto.randomUUID() : String(Date.now()));
             }
             setBusy(true);
             try {
@@ -2859,39 +2921,22 @@
                 await onReload();
                 return;
               }
-              const { error } = await supabase.from("users").insert({ id, ...payload });
+              const { data, error } = await supabase.from("users").insert({ id, ...payload }).select("id");
               if (error) {
-                alert(error.message);
+                const msg = String(error.message || "");
+                if (/foreign key constraint|violates foreign key|auth\.users/i.test(msg)) {
+                  alert("Neizdevās saglabāt DB, jo šim e-pastam nav izveidots Supabase Authentication lietotājs.");
+                } else {
+                  alert(error.message);
+                }
+                return;
+              }
+              if (!data || data.length === 0) {
+                alert("Netika izveidots ieraksts (RLS vai 0 rindas).");
                 return;
               }
               setAddOpen(false);
               setAddForm({ id: "", vardUzv: "", imail: "", amats: "", role: "user" });
-              await onReload();
-            } finally {
-              setBusy(false);
-            }
-          }
-          async function confirmDelete() {
-            if (!delId) return;
-            if (!canAdmin) {
-              alert("Dzēst drīkst tikai Admin.");
-              return;
-            }
-            setBusy(true);
-            try {
-              if (TIKAI_VIENKARSI_SKATS || !supabase) {
-                window.KOMANDA?.deleteTeamUser?.(delId);
-                pushChangeLog("komanda.dzest", `Lietotājs ${delId} dzēsts`);
-                setDelId(null);
-                await onReload();
-                return;
-              }
-              const { error } = await supabase.from("users").delete().eq("id", delId);
-              if (error) {
-                alert(error.message);
-                return;
-              }
-              setDelId(null);
               await onReload();
             } finally {
               setBusy(false);
@@ -2904,72 +2949,10 @@
                 Šī ir pamata lietotāju tabula. Šeit nosaki lomas (piemēram, <code>admin</code> vai
                 <code>user</code>) un piekļuves tiesības.
               </p>
-              ${canAdmin
-                ? html`
-                    <div class="row" style=${{ marginBottom: "0.65rem" }}>
-                      <button type="button" class="btn btn-primary btn-small" onClick=${() => setAddOpen(!addOpen)}>
-                        ${addOpen ? "Aizvērt formu" : "+ Pievienot lietotāju"}
-                      </button>
-                    </div>
-                    ${addOpen
-                      ? html`
-                          <form class="stack" style=${{ marginBottom: "1rem", padding: "0.75rem", border: "1px solid var(--border)", borderRadius: "8px" }} onSubmit=${saveAdd}>
-                            ${TIKAI_VIENKARSI_SKATS
-                              ? null
-                              : html`
-                                  <div class="field">
-                                    <label>Lietotāja UUID (no Supabase Authentication)</label>
-                                    <input
-                                      class="input"
-                                      required
-                                      placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                                      value=${addForm.id}
-                                      onChange=${(ev) => setAddForm((f) => ({ ...f, id: ev.target.value }))}
-                                    />
-                                  </div>
-                                `}
-                            <div class="field">
-                              <label>Vārds uzvārds</label>
-                              <input
-                                class="input"
-                                value=${addForm.vardUzv}
-                                onChange=${(ev) => setAddForm((f) => ({ ...f, vardUzv: ev.target.value }))}
-                              />
-                            </div>
-                            <div class="field">
-                              <label>e-pasts</label>
-                              <input
-                                class="input"
-                                type="email"
-                                value=${addForm.imail}
-                                onChange=${(ev) => setAddForm((f) => ({ ...f, imail: ev.target.value }))}
-                              />
-                            </div>
-                            <div class="field">
-                              <label>Amats</label>
-                              <input
-                                class="input"
-                                value=${addForm.amats}
-                                onChange=${(ev) => setAddForm((f) => ({ ...f, amats: ev.target.value }))}
-                              />
-                            </div>
-                            <div class="field">
-                              <label>Loma</label>
-                              <select
-                                class="select"
-                                value=${addForm.role}
-                                onChange=${(ev) => setAddForm((f) => ({ ...f, role: ev.target.value }))}
-                              >
-                                <option value="user">user</option>
-                                <option value="admin">admin</option>
-                              </select>
-                            </div>
-                            <button type="submit" class="btn btn-primary btn-small" disabled=${busy}>Saglabāt DB</button>
-                          </form>
-                        `
-                      : null}
-                  `
+              ${authHint
+                ? html`<div class="banner-warn" role="alert" style=${{ marginBottom: "0.65rem" }}>${authHint}</div>`
                 : null}
+              <!-- Jaunu lietotāju pievienošana notiek Supabase pusē (nevis caur lapu). -->
               <div class="table-wrap">
                 <table class="team-table">
                   <thead>
@@ -2992,15 +2975,6 @@
                                     <div class="row" style=${{ gap: "0.25rem" }}>
                                       <button type="button" class="btn btn-ghost btn-small" onClick=${() => openEdit(u)}>
                                         Labot
-                                      </button>
-                                      <button
-                                        type="button"
-                                        class="btn btn-danger btn-small"
-                                        disabled=${String(u.id) === String(currentUserId)}
-                                        title=${String(u.id) === String(currentUserId) ? "Nevar dzēst pašam sev" : ""}
-                                        onClick=${() => setDelId(u.id)}
-                                      >
-                                        Dzēst
                                       </button>
                                     </div>
                                   </td>
@@ -3201,36 +3175,6 @@
                             </button>
                           </div>
                         </form>
-                      </div>
-                    </div>
-                  `
-                : null}
-              ${delId
-                ? html`
-                    <div
-                      style=${{
-                        position: "fixed",
-                        inset: 0,
-                        background: "rgba(0,0,0,0.45)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        zIndex: 50,
-                        padding: "1rem",
-                      }}
-                      onClick=${() => setDelId(null)}
-                    >
-                      <div class="list-panel" style=${{ maxWidth: "380px", width: "100%" }} onClick=${(ev) => ev.stopPropagation()}>
-                        <p style=${{ margin: "0 0 0.75rem" }}>
-                          Dzēst ierakstu no <code>users</code>? Auth konts paliek — vajadzības gadījumā dzēš arī no
-                          Supabase Authentication.
-                        </p>
-                        <div class="row">
-                          <button type="button" class="btn btn-danger btn-small" disabled=${busy} onClick=${confirmDelete}>
-                            Jā, dzēst
-                          </button>
-                          <button type="button" class="btn btn-ghost btn-small" onClick=${() => setDelId(null)}>Nē</button>
-                        </div>
                       </div>
                     </div>
                   `
@@ -3800,6 +3744,7 @@
           approverView,
           historyOpen,
           onToggleHistory,
+          historyMonth,
           highlightAbsenceId,
           onClearHighlight,
           canApproveAbsences,
@@ -3809,6 +3754,12 @@
           const [filtersOpen, setFiltersOpen] = useState(false);
           const [histPage, setHistPage] = useState(0);
           const HIST_PAGE_SIZE = 20;
+          const [periodPickerOpen, setPeriodPickerOpen] = useState(false);
+          // Pēc noklusējuma vēsture rāda atlasīto mēnesi (calendar state).
+          // Lietotājs var to mainīt uz “Visi periodi” vai “no–līdz”.
+          const [periodMode, setPeriodMode] = useState("month"); // 'month' | 'all' | 'range'
+          const [periodFrom, setPeriodFrom] = useState("");
+          const [periodTo, setPeriodTo] = useState("");
           const [form, setForm] = useState({ type_id: "", start_date: "", end_date: "", comment: "" });
           const [filters, setFilters] = useState({
             name: "",
@@ -3848,6 +3799,46 @@
           function ensureHistoryOpen() {
             if (!historyOpen) onToggleHistory();
           }
+          const periodRange = useMemo(() => {
+            const V = globalThis.PDDPrombutnesVesture;
+            const toYmd = typeof V?.toYmd === "function" ? V.toYmd : (x) => String(x ?? "").slice(0, 10);
+
+            if (periodMode === "all") return null;
+            if (periodMode === "month") {
+              const m = historyMonth instanceof Date ? historyMonth : new Date();
+              const from = format(startOfMonth(m), "yyyy-MM-dd");
+              const to = format(endOfMonth(m), "yyyy-MM-dd");
+              return { fromYmd: toYmd(from), toYmd: toYmd(to) };
+            }
+            // range
+            return { fromYmd: toYmd(periodFrom), toYmd: toYmd(periodTo) };
+          }, [periodMode, periodFrom, periodTo, historyMonth]);
+
+          const periodLabelText = useMemo(() => {
+            if (periodMode === "all") return "Visi periodi";
+            if (periodMode === "month") {
+              const m = historyMonth instanceof Date ? historyMonth : new Date();
+              return format(m, "LLLL yyyy", { locale: lv });
+            }
+            // range
+            const fromLv = periodFrom ? formatDateLv(String(periodFrom).slice(0, 10)) : "—";
+            const toLv = periodTo ? formatDateLv(String(periodTo).slice(0, 10)) : "—";
+            return `${fromLv}–${toLv}`;
+          }, [periodMode, periodFrom, periodTo, historyMonth]);
+
+          useEffect(() => {
+            // Kad mainās mēnesis, atjaunojam range sākuma/beigu vērtības tikai ja lietotājs nav ielicis citu.
+            const m = historyMonth instanceof Date ? historyMonth : new Date();
+            const from = format(startOfMonth(m), "yyyy-MM-dd");
+            const to = format(endOfMonth(m), "yyyy-MM-dd");
+            if (!periodFrom) setPeriodFrom(from);
+            if (!periodTo) setPeriodTo(to);
+            // Ja mode ir month, range vērtības nav svarīgas.
+          }, [historyMonth]); // eslint-disable-line react-hooks/exhaustive-deps
+
+          useEffect(() => {
+            setHistPage(0);
+          }, [periodMode, periodFrom, periodTo]);
           function applyFilter(key, value) {
             setFilters((prev) => ({ ...prev, [key]: value }));
             ensureHistoryOpen();
@@ -3875,6 +3866,22 @@
               });
             const f = filters ?? {};
             return sortedList.filter((a) => {
+              // Perioda filtrs (mēnesis / visi / no–līdz).
+              // Lai izceltā rinda vienmēr būtu redzama, ja tā ir ārpus perioda — to tomēr iekļaujam.
+              if (periodRange) {
+                const isHighlighted = highlightAbsenceId && String(a?.id ?? "") === String(highlightAbsenceId ?? "");
+                if (!isHighlighted) {
+                  const V = globalThis.PDDPrombutnesVesture;
+                  const toYmd = typeof V?.toYmd === "function" ? V.toYmd : (x) => String(x ?? "").slice(0, 10);
+                  const aStart = toYmd(a?.start_date);
+                  const aEnd = toYmd(a?.end_date);
+                  const ok =
+                    typeof V?.intersectsYmdRange === "function"
+                      ? V.intersectsYmdRange(aStart, aEnd, periodRange.fromYmd, periodRange.toYmd)
+                      : true;
+                  if (!ok) return false;
+                }
+              }
               const userFull = userDisplayName(a.employee);
               const userShown = userShownFromFull(userFull);
               const typeName = a.type?.name ?? a.type_id ?? "";
@@ -3890,7 +3897,7 @@
               if (f.rejectReason && !includesMatch(extractRejectReason(a), f.rejectReason)) return false;
               return true;
             });
-          }, [sortedList, filters, approverView, userId]);
+          }, [sortedList, filters, approverView, userId, periodRange, highlightAbsenceId]);
           const historyTotal = filteredList.length;
           const historyTotalPages = Math.max(1, Math.ceil(historyTotal / HIST_PAGE_SIZE));
           const historySafePage = Math.max(0, Math.min(histPage, historyTotalPages - 1));
@@ -4127,9 +4134,73 @@
                         </button>
                       `
                     : null}
-                  <button type="button" class="btn btn-primary btn-small" onClick=${onToggleHistory}>
-                    ${historyOpen ? "Slēpt ierakstus (tikai galvenes)" : "Rādīt ierakstus"}
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-small"
+                    onClick=${() => setPeriodPickerOpen((o) => !o)}
+                    title="Perioda filtrs"
+                  >
+                    Periods: ${periodLabelText}
                   </button>
+                  <button
+                    type="button"
+                    class="btn btn-primary btn-small"
+                    onClick=${() => setPeriodPickerOpen(true)}
+                    title="Mainīt periodu"
+                  >
+                    Mainīt periodu
+                  </button>
+                  ${periodPickerOpen
+                    ? html`
+                        <div
+                          style=${{
+                            minWidth: "320px",
+                            padding: "0.6rem 0.7rem",
+                            borderRadius: "10px",
+                            border: "1px solid rgba(74,179,165,0.55)",
+                            background: "rgba(0,0,0,0.06)",
+                          }}
+                        >
+                          <div class="row" style=${{ justifyContent: "space-between", alignItems: "center" }}>
+                            <div style=${{ fontSize: "0.85rem", color: "var(--muted)" }}>Rādīt prombūtnes</div>
+                            <button type="button" class="btn btn-ghost btn-small" onClick=${() => setPeriodPickerOpen(false)}>
+                              Aizvērt
+                            </button>
+                          </div>
+                          <div class="row" style=${{ marginTop: "0.5rem" }}>
+                            <select class="select" value=${periodMode} onChange=${(e) => setPeriodMode(e.target.value)}>
+                              <option value="month">Šis mēnesis</option>
+                              <option value="all">Visi periodi</option>
+                              <option value="range">no–līdz</option>
+                            </select>
+                          </div>
+                          ${periodMode === "range"
+                            ? html`
+                                <div class="row" style=${{ gap: "0.75rem", marginTop: "0.5rem" }}>
+                                  <div class="field" style=${{ flex: 1 }}>
+                                    <label style=${{ fontSize: "0.78rem" }}>no</label>
+                                    <input
+                                      type="date"
+                                      class="input"
+                                      value=${periodFrom}
+                                      onChange=${(e) => setPeriodFrom(e.target.value)}
+                                    />
+                                  </div>
+                                  <div class="field" style=${{ flex: 1 }}>
+                                    <label style=${{ fontSize: "0.78rem" }}>līdz</label>
+                                    <input
+                                      type="date"
+                                      class="input"
+                                      value=${periodTo}
+                                      onChange=${(e) => setPeriodTo(e.target.value)}
+                                    />
+                                  </div>
+                                </div>
+                              `
+                            : null}
+                        </div>
+                      `
+                    : null}
                   <button
                     type="button"
                     class=${`btn btn-small ${myFilterActive ? "btn-danger" : "btn-ghost"}`}
@@ -4368,13 +4439,23 @@
                             const timeMark =
                               isCitsType &&
                               !/^Visa diena\b/i.test(citsCommentRaw) &&
-                              (Boolean(a?.laiks_no || a?.laiks_lidz) || /^Laikā no\s+/i.test(citsCommentRaw));
+                              (Boolean(a?.laiks_no || a?.laiks_lidz) || /^(Laika|Laikā)\s+no\s+/i.test(citsCommentRaw));
+                            const timeLabel = (() => {
+                              if (!timeMark) return "";
+                              const from = String(a?.laiks_no ?? "").trim();
+                              const to = String(a?.laiks_lidz ?? "").trim();
+                              if (from && to) return `${from}–${to}`;
+                              const m = /^(Laika|Laikā)\s+no\s+(\d{1,2}:\d{2})\s+(līdz|lidz)\s+(\d{1,2}:\d{2})/i.exec(citsCommentRaw);
+                              if (m) return `${m[2]}–${m[4]}`;
+                              return "Laiks";
+                            })();
                             const pendingCitsRow = (() => {
                               const fn = globalThis.PDDPrombutnesVesture?.isPendingCitsAbsence;
-                              if (typeof fn === "function") return Boolean(fn(a));
+                              const base = typeof fn === "function" ? Boolean(fn(a)) : false;
                               const typeName = a?.type?.name ?? a?.type_id ?? "";
                               const st = String(a?.status ?? "").trim().toLowerCase();
-                              return isCitsSaskanotsTypeName(typeName) && (st === "pending" || st === "pending_manager" || st === "gaida");
+                              const fallback = isCitsSaskanotsTypeName(typeName) && (st === "pending" || st === "pending_manager" || st === "gaida");
+                              return base || fallback;
                             })();
                             const statusText = isCitsType
                               ? (a.status === "approved" ? "saskaņots" : a.status === "rejected" ? "noraidīts" : "gaida")
@@ -4416,6 +4497,24 @@
                                           <circle cx="12" cy="12" r="10"></circle>
                                           <polyline points="12 6 12 12 16 14"></polyline>
                                         </svg>
+                                        <span
+                                          style=${{
+                                            marginLeft: "0.35rem",
+                                            display: "inline-flex",
+                                            alignItems: "center",
+                                            background: "rgba(56,189,248,0.14)",
+                                            color: "var(--text)",
+                                            border: "1px solid rgba(56,189,248,0.35)",
+                                            padding: "1px 6px",
+                                            borderRadius: "999px",
+                                            fontSize: "0.72rem",
+                                            lineHeight: 1.2,
+                                            verticalAlign: "text-bottom",
+                                          }}
+                                          title="Prombūtne nav uz visu dienu"
+                                        >
+                                          ${timeLabel}
+                                        </span>
                                       `
                                     : null}
                                 </td>
@@ -4427,6 +4526,28 @@
                                   <span class=${`badge ${statusBadgeClass}`}>
                                     ${maybeMark(statusText, filters.status)}
                                   </span>
+                                  ${pendingCitsRow
+                                    ? html`
+                                        <span
+                                          style=${{
+                                            marginLeft: "0.5rem",
+                                            display: "inline-flex",
+                                            alignItems: "center",
+                                            background: "rgba(220,38,38,0.12)",
+                                            color: "var(--danger, #dc2626)",
+                                            border: "1px solid rgba(220,38,38,0.45)",
+                                            padding: "1px 6px",
+                                            borderRadius: "999px",
+                                            fontSize: "0.72rem",
+                                            lineHeight: 1.2,
+                                            verticalAlign: "text-bottom",
+                                          }}
+                                          title="Gaida apstiprinājumu"
+                                        >
+                                          Gaida apstiprinājumu
+                                        </span>
+                                      `
+                                    : null}
                                 </td>
                                 <td>
                                   ${isCitsType && String(a.status || "").toLowerCase() === "rejected"
@@ -4732,7 +4853,7 @@
             to: COL_USER_APPROVER_TO,
           });
           const [error, setError] = useState(null);
-          const [historyOpen, setHistoryOpen] = useState(false);
+          const [historyOpen, setHistoryOpen] = useState(true);
           const [highlightAbsenceId, setHighlightAbsenceId] = useState(null);
           const [requestPresetDate, setRequestPresetDate] = useState("");
           const [highlightFromUrl, setHighlightFromUrl] = useState(null);
@@ -5030,7 +5151,8 @@
                       onRefresh=${refresh}
                       approverView=${canApprove}
                       historyOpen=${historyOpen}
-                      onToggleHistory=${() => setHistoryOpen((o) => !o)}
+                      onToggleHistory=${() => setHistoryOpen(true)}
+                      historyMonth=${new Date()}
                       highlightAbsenceId=${highlightAbsenceId || highlightFromUrl}
                       onClearHighlight=${() => setHighlightAbsenceId(null)}
                       canApproveAbsences=${canApprove}

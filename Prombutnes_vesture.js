@@ -45,5 +45,19 @@
     isCitsSaskanotsTypeName,
     isPendingCitsAbsence,
     shouldShowPendingCitsNavBadge,
+    toYmd: function toYmd(v) {
+      return String(v ?? "").slice(0, 10);
+    },
+    // Pārbauda, vai ieraksts (aStart-aEnd) pārklājas ar periodu (pStart-pEnd).
+    // Ja trūkst start/end, pieņemam, ka ierakstu var rādīt (negriežam ārā).
+    intersectsYmdRange: function intersectsYmdRange(aStart, aEnd, pStart, pEnd) {
+      const as = String(aStart ?? "");
+      const ae = String(aEnd ?? "");
+      const ps = String(pStart ?? "");
+      const pe = String(pEnd ?? "");
+      if (!as || !ae || !ps || !pe) return true;
+      // String salīdzināšana strādā YYYY-MM-DD formātam.
+      return as <= pe && ae >= ps;
+    },
   };
 })(typeof window !== "undefined" ? window : globalThis);

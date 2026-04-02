@@ -13,6 +13,7 @@ declare
   v_type_col text;
   v_status_col text;
   v_type_name_col text;
+  v_uuid_regex text := '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
 begin
   -- user (owner) kolonna
   select
@@ -25,6 +26,14 @@ begin
         select 1 from information_schema.columns
         where table_schema='public' and table_name='prombutnes_dati' and column_name='darbinieks_id'
       ) then 'darbinieks_id'
+      when exists (
+        select 1 from information_schema.columns
+        where table_schema='public' and table_name='prombutnes_dati' and column_name='Vārds uzvārds'
+      ) then 'Vārds uzvārds'
+      when exists (
+        select 1 from information_schema.columns
+        where table_schema='public' and table_name='prombutnes_dati' and column_name='Vards uzvards'
+      ) then 'Vards uzvards'
       else null
     end
   into v_user_col;
@@ -97,50 +106,106 @@ begin
   end if;
 
   -- Insert: owner can create.
-  execute 'drop policy if exists "prombutnes_insert_own" on public.prombutnes_dati';
+  execute 'drop policy if exists "prombutnes_insert_own_or_admin" on public.prombutnes_dati';
   execute format(
-    'create policy "prombutnes_insert_own" on public.prombutnes_dati for insert to authenticated with check (auth.uid() = %I)',
+    'create policy "prombutnes_insert_own_or_admin" on public.prombutnes_dati
+      for insert to authenticated
+      with check (
+        auth.uid() = (
+          case
+            when ( %I )::text ~ %L then ( ( %I )::text )::uuid
+            else null
+          end
+        )
+        or exists (
+          select 1
+          from public.users u
+          where u.id = auth.uid()
+            and lower(trim(coalesce(u.role, ''''))) in (''admin'', ''manager'')
+        )
+      )',
+    v_user_col,
+    v_uuid_regex,
     v_user_col
   );
 
   -- Update:
   -- - owner can update non-Cits rows always
   -- - for Cits rows: owner can update only status in ('pending','rejected')
-  execute 'drop policy if exists "prombutnes_update_own" on public.prombutnes_dati';
-  execute 'drop policy if exists "prombutnes_update_own_pending" on public.prombutnes_dati';
+  execute 'drop policy if exists "prombutnes_update_own_or_admin" on public.prombutnes_dati';
   execute format(
-    'create policy "prombutnes_update_own" on public.prombutnes_dati
+    'create policy "prombutnes_update_own_or_admin" on public.prombutnes_dati
       for update to authenticated
       using (
-        auth.uid() = %I
-        and (
-          not exists (
-            select 1
-            from public.prombutnes_veidi v
-            where v.id = (%I)::integer
-              and lower(trim(coalesce(v.%I::text, ''''))) like ''%%cits%%''
-              and lower(trim(coalesce(v.%I::text, ''''))) like ''%%vad%%''
-              and lower(trim(coalesce(v.%I::text, ''''))) like ''%%sask%%''
+        exists (
+          select 1
+          from public.users u
+          where u.id = auth.uid()
+            and lower(trim(coalesce(u.role, ''''))) in (''admin'', ''manager'')
+        )
+        or (
+          auth.uid() = (
+            case
+              when ( %I )::text ~ %L then ( ( %I )::text )::uuid
+              else null
+            end
           )
-          or %I in (''pending'', ''pending_manager'', ''gaida'', ''rejected'')
+          and (
+            not exists (
+              select 1
+              from public.prombutnes_veidi v
+              where v.id = (%I)::integer
+                and lower(trim(coalesce(v.%I::text, ''''))) like ''%%cits%%''
+                and lower(trim(coalesce(v.%I::text, ''''))) like ''%%vad%%''
+                and lower(trim(coalesce(v.%I::text, ''''))) like ''%%sask%%''
+            )
+            or %I in (''pending'', ''pending_manager'', ''gaida'', ''rejected'')
+          )
         )
       )
       with check (
-        auth.uid() = %I
-        and (
-          not exists (
-            select 1
-            from public.prombutnes_veidi v
-            where v.id = (%I)::integer
-              and lower(trim(coalesce(v.%I::text, ''''))) like ''%%cits%%''
-              and lower(trim(coalesce(v.%I::text, ''''))) like ''%%vad%%''
-              and lower(trim(coalesce(v.%I::text, ''''))) like ''%%sask%%''
+        exists (
+          select 1
+          from public.users u
+          where u.id = auth.uid()
+            and lower(trim(coalesce(u.role, ''''))) in (''admin'', ''manager'')
+        )
+        or (
+          auth.uid() = (
+            case
+              when ( %I )::text ~ %L then ( ( %I )::text )::uuid
+              else null
+            end
           )
-          or %I in (''pending'', ''pending_manager'', ''gaida'', ''rejected'')
+          and (
+            not exists (
+              select 1
+              from public.prombutnes_veidi v
+              where v.id = (%I)::integer
+                and lower(trim(coalesce(v.%I::text, ''''))) like ''%%cits%%''
+                and lower(trim(coalesce(v.%I::text, ''''))) like ''%%vad%%''
+                and lower(trim(coalesce(v.%I::text, ''''))) like ''%%sask%%''
+            )
+            or %I in (''pending'', ''pending_manager'', ''gaida'', ''rejected'')
+          )
         )
       )',
-    v_user_col, v_type_col, v_type_name_col, v_type_name_col, v_type_name_col, v_status_col,
-    v_user_col, v_type_col, v_type_name_col, v_type_name_col, v_type_name_col, v_status_col
+    v_user_col,
+    v_uuid_regex,
+    v_user_col,
+    v_type_col,
+    v_type_name_col,
+    v_type_name_col,
+    v_type_name_col,
+    v_status_col,
+    v_user_col,
+    v_uuid_regex,
+    v_user_col,
+    v_type_col,
+    v_type_name_col,
+    v_type_name_col,
+    v_type_name_col,
+    v_status_col
   );
 
   -- Delete:
@@ -151,7 +216,12 @@ begin
     'create policy "prombutnes_delete_own_or_manager" on public.prombutnes_dati
       for delete to authenticated
       using (
-        auth.uid() = %I
+        auth.uid() = (
+          case
+            when ( %I )::text ~ %L then ( ( %I )::text )::uuid
+            else null
+          end
+        )
         or exists (
           select 1
           from public.users u
@@ -159,6 +229,8 @@ begin
             and u.role in (''manager'', ''admin'')
         )
       )',
+    v_user_col,
+    v_uuid_regex,
     v_user_col
   );
 end $$;
