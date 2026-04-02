@@ -1,0 +1,12 @@
+{
+  "name": "pdd-aplikacija",
+  "private": true,
+  "description": "PDD app — Resend e-pasti caur Vercel api/pdd-resend (bez Edge Functions)",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.49.1",
+    "resend": "4.0.1"
+  }
+}

@@ -3,6 +3,12 @@
  *
  * Atsevišķs modulis prombūtnes "Cits" saskaņošanai ar e-pastiem.
  * Šis fails neiejaucas esošajās lapās/funkcijās.
+ *
+ * Stabilitāte: prombūtnes vēstures labošana/dzēšana un DB kolonnas — index.html;
+ * šajā failā turpmāk labojam tikai e-pasta loģiku šim modulim.
+ *
+ * E-pasta sūtīšana produkcijā: `api/pdd-resend.js` (Resend, bez Edge Functions).
+ * `onRequestCreated` šeit ir references modulis; sinhronizē ar šī API loģiku.
  */
 
 const APPROVAL_LINK = "https://irinakupcova.github.io/PDD_aplikacija/prombutnes-vesture";
@@ -42,6 +48,11 @@ function pickRequestVeids(req) {
 
 function pickRequestUserId(req) {
   return req?.user_id ?? req?.["Vārds uzvārds"] ?? req?.userId ?? null;
+}
+
+function pickUserEmail(user) {
+  if (!user || typeof user !== "object") return "";
+  return String(user.email ?? user["i-mail"] ?? user["e-mail"] ?? user["e-pasts"] ?? "").trim();
 }
 
 async function getUserById(supabase, userId) {
@@ -108,18 +119,53 @@ async function onRequestCreated({
   if (!startsWithCits(effectiveVeids)) return { ok: true, notified: false };
 
   const admin = await getFirstAdmin(supabase);
-  if (!admin?.email) return { ok: true, notified: false, warning: "Admin e-pasts nav atrasts." };
+  const adminEmail = pickUserEmail(admin);
+  if (!adminEmail) return { ok: true, notified: false, warning: "Admin e-pasts nav atrasts." };
 
-  await sendResendEmail(resend, {
-    from: fromEmail,
-    to: admin.email,
-    subject: "Ir iesniegts jauns prombūtnes pieteikums (Cits)",
-    text:
-      "Ir iesniegts jauns prombūtnes pieteikums (Cits).\n\n" +
-      `Atvērt sistēmā: ${APPROVAL_LINK}`,
-  });
+  const applicant = await getUserById(supabase, pickRequestUserId(req));
+  const applicantEmail = pickUserEmail(applicant);
 
-  return { ok: true, notified: true, request: req };
+  const managerSubject = "Ir iesniegts jauns prombūtnes pieteikums (Cits)";
+  const managerText =
+    "Ir iesniegts jauns prombūtnes pieteikums (Cits).\n\n" + `Atvērt sistēmā: ${APPROVAL_LINK}`;
+
+  const applicantSubject = "Pārbaude: Jūsu Cits pieteikums nodots saskaņošanai";
+  const applicantText =
+    "Šis e-pasts ir pārbaudei: Jūsu prombūtnes pieteikums (Cits) ir reģistrēts un vadītājam ir nosūtīts paziņojums saskaņošanai.\n\n" +
+    `Atvērt sistēmā: ${APPROVAL_LINK}`;
+
+  const sends = [
+    sendResendEmail(resend, {
+      from: fromEmail,
+      to: adminEmail,
+      subject: managerSubject,
+      text: managerText,
+    }),
+  ];
+
+  if (applicantEmail && norm(applicantEmail) !== norm(adminEmail)) {
+    sends.push(
+      sendResendEmail(resend, {
+        from: fromEmail,
+        to: applicantEmail,
+        subject: applicantSubject,
+        text: applicantText,
+      })
+    );
+  }
+
+  await Promise.all(sends);
+
+  const warning = !applicantEmail
+    ? "Pieteicēja e-pasts nav atrasts — kopija pārbaudei netika nosūtīta."
+    : undefined;
+
+  return {
+    ok: true,
+    notified: true,
+    request: req,
+    ...(warning ? { warning } : {}),
+  };
 }
 
 async function approveRequest({
@@ -146,10 +192,11 @@ async function approveRequest({
   if (!req) throw new Error("Pieteikums nav atrasts.");
 
   const applicant = await getUserById(supabase, pickRequestUserId(req));
-  if (applicant?.email) {
+  const applicantMail = pickUserEmail(applicant);
+  if (applicantMail) {
     await sendResendEmail(resend, {
       from: fromEmail,
-      to: applicant.email,
+      to: applicantMail,
       subject: "Jūsu pieteikums ir apstiprināts",
       text: "Jūsu prombūtnes pieteikums ir apstiprināts.",
     });
@@ -187,10 +234,11 @@ async function rejectRequest({
   if (!req) throw new Error("Pieteikums nav pending vai nav atrasts.");
 
   const applicant = await getUserById(supabase, pickRequestUserId(req));
-  if (applicant?.email) {
+  const applicantMail = pickUserEmail(applicant);
+  if (applicantMail) {
     await sendResendEmail(resend, {
       from: fromEmail,
-      to: applicant.email,
+      to: applicantMail,
       subject: "Jūsu pieteikums ir noraidīts",
       text: `Jūsu prombūtnes pieteikums ir noraidīts.\n\nIemesls: ${r}`,
     });

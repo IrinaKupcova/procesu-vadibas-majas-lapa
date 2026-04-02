@@ -9,6 +9,15 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+function pickApplicantEmail(p: Record<string, unknown> | null): string {
+  if (!p) return "";
+  return String(p.email ?? p["i-mail"] ?? p["e-mail"] ?? p["e-pasts"] ?? "").trim();
+}
+
+function normEmail(s: string): string {
+  return s.trim().toLowerCase();
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -76,7 +85,7 @@ Deno.serve(async (req) => {
 
     const { data: prof } = await admin
       .from("users")
-      .select('full_name, email, "i-mail", "Vārds uzvārds"')
+      .select('full_name, email, "i-mail", "e-pasts", "Vārds uzvārds"')
       .eq("id", row.user_id)
       .maybeSingle();
     const p = prof as Record<string, unknown> | null;
@@ -103,7 +112,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    const html = `
+    const htmlManager = `
       <p>Sveiki,</p>
       <p><strong>${employee}</strong> pieprasa prombūtni ar veidu <strong>Cits (ar vadītāja saskaņojumu)</strong>.</p>
       <p>Periods: <strong>${row.start_date}</strong> — <strong>${row.end_date}</strong></p>
@@ -112,31 +121,91 @@ Deno.serve(async (req) => {
       <p>Ja saite nedarbojas, ielīmē pārlūkā:<br/><code>${link}</code></p>
     `;
 
-    const r = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${resendKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from,
-        to: [row.notify_email],
-        subject: `PDD: Cits (ar vadītāja saskaņojumu) — ${employee} (${row.start_date}–${row.end_date})`,
-        html,
-      }),
-    });
+    const managerTo = String(row.notify_email || "").trim();
+    const applicantTo = pickApplicantEmail(p);
+    const sendApplicantCopy =
+      applicantTo.includes("@") &&
+      normEmail(applicantTo) !== normEmail(managerTo);
 
-    if (!r.ok) {
-      const t = await r.text();
-      return new Response(JSON.stringify({ error: "Resend: " + t }), {
+    const htmlApplicant = `
+      <p>Sveiki, <strong>${employee}</strong>,</p>
+      <p>Šis e-pasts ir <strong>pārbaudei</strong>: Jūsu pieprasījums <strong>Cits (ar vadītāja saskaņojumu)</strong> ir reģistrēts, un vadītājam ir nosūtīts paziņojums saskaņošanai.</p>
+      <p>Periods: <strong>${row.start_date}</strong> — <strong>${row.end_date}</strong></p>
+      ${row.comment ? `<p>Komentārs: ${String(row.comment).replace(/</g, "&lt;")}</p>` : ""}
+      <p><a href="${link}">Saite apstiprināšanai</a> (tā pati kā vadītājam)</p>
+      <p>Ja saite nedarbojas, ielīmē pārlūkā:<br/><code>${link}</code></p>
+    `;
+
+    const headers = {
+      Authorization: `Bearer ${resendKey}`,
+      "Content-Type": "application/json",
+    };
+
+    const tasks: Promise<Response>[] = [
+      fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          from,
+          to: [managerTo],
+          subject: `PDD: Cits (ar vadītāja saskaņojumu) — ${employee} (${row.start_date}–${row.end_date})`,
+          html: htmlManager,
+        }),
+      }),
+    ];
+    if (sendApplicantCopy) {
+      tasks.push(
+        fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            from,
+            to: [applicantTo],
+            subject: `PDD (pārbaude): pieprasījums nodots saskaņošanai (${row.start_date}–${row.end_date})`,
+            html: htmlApplicant,
+          }),
+        }),
+      );
+    }
+
+    const results = await Promise.all(tasks);
+    const mgrResp = results[0];
+    if (!mgrResp.ok) {
+      const t = await mgrResp.text();
+      return new Response(JSON.stringify({ error: "Resend (vadītājs): " + t }), {
         status: 502,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    return new Response(JSON.stringify({ ok: true, link }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    let applicant_copy_failed: string | undefined;
+    if (results[1]) {
+      const appResp = results[1];
+      if (!appResp.ok) {
+        applicant_copy_failed = await appResp.text();
+      }
+    }
+
+    const sameAddrAsManager =
+      Boolean(applicantTo) && normEmail(applicantTo) === normEmail(managerTo);
+    let warning: string | undefined;
+    if (!sendApplicantCopy && !sameAddrAsManager) {
+      if (!applicantTo) warning = "Pieteicēja e-pasts nav atrasts — kopija netika sūtīta.";
+      else if (!applicantTo.includes("@")) warning = "Pieteicēja e-pasts nav derīgs — kopija netika sūtīta.";
+    }
+
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        link,
+        applicant_copy: sendApplicantCopy,
+        ...(warning ? { warning } : {}),
+        ...(applicant_copy_failed ? { applicant_copy_failed } : {}),
+      }),
+      {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
   } catch (e) {
     return new Response(JSON.stringify({ error: String(e) }), {
       status: 500,
