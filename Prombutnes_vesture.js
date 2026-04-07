@@ -19,8 +19,10 @@
 
   function isPendingCitsAbsence(a) {
     if (!a || typeof a !== "object") return false;
-    const typeName = a.type?.name ?? a.type_id ?? "";
-    if (!isCitsSaskanotsTypeName(typeName)) return false;
+    const typeLabel = String(
+      a.type?.name ?? a.type?.type ?? a["Prombūtnes veids"] ?? a.prombutnes_veids ?? ""
+    ).trim();
+    if (!typeLabel || !isCitsSaskanotsTypeName(typeLabel)) return false;
     const st = String(a.status ?? "").trim().toLowerCase();
     return st === "pending" || st === "pending_manager" || st === "gaida";
   }

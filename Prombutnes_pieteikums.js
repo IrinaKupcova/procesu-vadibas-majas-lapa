@@ -1,47 +1,20 @@
-const [users, setUsers] = useState([]);
-const [selectedUserId, setSelectedUserId] = useState("");
-useEffect(() => {
-    async function loadUsers() {
-      if (isLocalMode()) {
-        setUsers([
-          {
-            id: "1",
-            full_name: localDisplayName(),
-            email: "demo@local",
-            role: "employee",
-            created_at: new Date().toISOString(),
-          },
-        ]);
-        return;
-      }
-  
-      const { data, error } = await supabase.from("users").select("*").order("full_name", { ascending: true });
-  
-      if (error) {
-        console.error(error);
-        return;
-      }
-  
-      setUsers(data || []);
-    }
-  
-    loadUsers();
-  }, []);
+/**
+ * Prombūtnes pieteikums — palīgfunkcijas (Cits periods u.tml.).
+ *
+ * Darbinieku izvēlne un forma ir index.html → AbsenceRequestForm:
+ * noklusējumā atlasīts pašreizējais lietotājs, pārējie no public.users, ja vajag cits.
+ * Šis fails netiek obligāti ielādēts lapā; globālie palīgi zem window.PDD_CITS_PERIOD_HELPERS.
+ */
 
-// --- Papildu loģika Cits (ar vadītāja saskaņojumu) periodam ---
-// Mērķis: sagatavot etiķeti, ko var parādīt kalendārā (piem., ieliekot to `Komentārs` laukā)
-// vai izmantojot atsevišķi UI.
 function pad2(n) {
   const x = Number(n);
   return Number.isFinite(x) ? String(x).padStart(2, "0") : "";
 }
 
-// Pieņem vai nu "HH:MM", vai arī objektu { hour, minute }.
 function normalizeTimeLv(t) {
   if (!t) return "";
   if (typeof t === "string") {
     const s = String(t).trim();
-    // HTML input[type="time"] tipiski dod "HH:MM".
     const m = /^(\d{1,2}):(\d{2})$/.exec(s);
     if (m) return `${pad2(m[1])}:${pad2(m[2])}`;
     return s;
@@ -72,7 +45,6 @@ function buildCitsCommentWithPeriodLv({ allDay, fromTime, toTime, comment }) {
   return c || null;
 }
 
-// Globāls “helper” (ja kāda lapa grib lietot šīs funkcijas).
 window.PDD_CITS_PERIOD_HELPERS = {
   buildCitsPeriodLabelLv,
   buildCitsCommentWithPeriodLv,

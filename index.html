@@ -409,7 +409,7 @@
       <script src="./Prombutnes_vesture.js"></script>
 
       <script type="module">
-        import React, { useState, useEffect, useCallback, useMemo, useRef } from "https://esm.sh/react@19.0.0";
+        import React, { useState, useEffect, useCallback, useMemo } from "https://esm.sh/react@19.0.0";
         import { createRoot } from "https://esm.sh/react-dom@19.0.0/client";
         import htm from "https://esm.sh/htm@3.1.1";
         import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
@@ -793,24 +793,38 @@
           return errLatvian3 ?? errLatvian2 ?? errLatvian ?? errClassic ?? errDetected;
         }
 
+        /** Pirmais derīgais e-pasts (`e-pasts` bieži aizpildīts, bet `i-mail`/`email` tukši — `??` ķēde to nepārlec). */
+        function firstUserEmailField(u) {
+          if (!u) return "";
+          for (const c of [u["e-pasts"], u.email, u[COL_USER_IMAIL], u["e-mail"]]) {
+            const s = c != null ? String(c).trim() : "";
+            if (s.includes("@")) return s;
+          }
+          return "";
+        }
+
+        function userImail(u) {
+          return firstUserEmailField(u);
+        }
+
         function userDisplayName(u) {
-          if (!u) return "—";
+          if (!u) return "";
           const n =
             u[COL_USER_NAME] ??
             u.full_name ??
+            u.fullName ??
             u?.name ??
             u?.["Vārds un uzvārds"] ??
             u?.["Vārds, uzvārds"] ??
             u?.["vards uzvards"];
-          return (n && String(n).trim()) || "—";
-        }
-
-        function userImail(u) {
-          if (!u) return "";
-          // Supabase migrācijās `i-mail` bieži ir sinhronizēta no `email`, bet UI rādām kā e-pasts.
-          const e = u.email ?? u[COL_USER_IMAIL] ?? u["e-mail"] ?? u["e-pasts"];
-          const s = e && String(e).trim();
-          return s && s.includes("@") ? s : "";
+          const trimmed = n && String(n).trim();
+          if (trimmed) return trimmed;
+          const em = userImail(u);
+          if (em) {
+            const part = em.split("@")[0].trim();
+            return part || em;
+          }
+          return "";
         }
 
         function normalizeUserRole(rawRole) {
@@ -832,11 +846,15 @@
 
         function normalizeTeamUserRecord(u) {
           const name = String(
-            u?.[COL_USER_NAME] ?? u?.full_name ?? u?.["Vārds uzvārds"] ?? u?.["Vārds un uzvārds"] ?? u?.["Vārds, uzvārds"] ?? ""
+            u?.[COL_USER_NAME] ??
+              u?.full_name ??
+              u?.fullName ??
+              u?.["Vārds uzvārds"] ??
+              u?.["Vārds un uzvārds"] ??
+              u?.["Vārds, uzvārds"] ??
+              ""
           ).trim();
-          const email = String(
-            u?.email ?? u?.[COL_USER_IMAIL] ?? u?.["e-mail"] ?? u?.["e-pasts"] ?? u?.["i-mail"] ?? ""
-          ).trim();
+          const email = String(firstUserEmailField(u) ?? "").trim();
           const amats = String(u?.[COL_USER_AMATS] ?? u?.Amats ?? u?.amats ?? "").trim();
           const approverRaw = pickByAliases(u, USER_APPROVER_STATUS_ALIASES, u?.is_approver);
           const approverMode = normalizeApproverMode(approverRaw);
@@ -1027,20 +1045,36 @@
           return false;
         }
 
+        async function restAuthHeaders() {
+          const cfg = loadConfig();
+          const apiKey = String(cfg.key || "").trim();
+          const headers = { apikey: apiKey };
+          let bearer = apiKey;
+          if (supabase) {
+            try {
+              const { data } = await supabase.auth.getSession();
+              if (data?.session?.access_token) bearer = data.session.access_token;
+            } catch {
+              /* ignore */
+            }
+          }
+          headers.Authorization = `Bearer ${bearer}`;
+          return headers;
+        }
+
         async function fetchUsersDirectFromRest() {
           const cfg = loadConfig();
           const baseUrl = normalizeProjectUrl(cfg.url);
           const apiKey = String(cfg.key || "").trim();
           if (!baseUrl || !apiKey) return { data: null, error: new Error("Missing Supabase config") };
+          if (!isLocalMode() && supabase) await ensureDbReadableSession();
           try {
+            const headers = await restAuthHeaders();
             const resp = await fetch(
               `${baseUrl}/rest/v1/users?select=*&order=${encodeURIComponent(COL_USER_NAME)}.asc`,
               {
                 method: "GET",
-                headers: {
-                  apikey: apiKey,
-                  Authorization: `Bearer ${apiKey}`,
-                },
+                headers,
               }
             );
             if (!resp.ok) {
@@ -1059,18 +1093,17 @@
           const baseUrl = normalizeProjectUrl(cfg.url);
           const apiKey = String(cfg.key || "").trim();
           if (!baseUrl || !apiKey) return { data: null, error: new Error("Missing Supabase config") };
+          if (!isLocalMode() && supabase) await ensureDbReadableSession();
           const params = new URLSearchParams();
           params.set("select", "*");
           if (orderBy) {
             params.set("order", `${orderBy}.${ascending ? "asc" : "desc"}`);
           }
           try {
+            const headers = await restAuthHeaders();
             const resp = await fetch(`${baseUrl}/rest/v1/${encodeURIComponent(tableName)}?${params.toString()}`, {
               method: "GET",
-              headers: {
-                apikey: apiKey,
-                Authorization: `Bearer ${apiKey}`,
-              },
+              headers,
             });
             if (!resp.ok) {
               const txt = await resp.text();
@@ -1088,11 +1121,9 @@
           const baseUrl = normalizeProjectUrl(cfg.url);
           const apiKey = String(cfg.key || "").trim();
           if (!baseUrl || !apiKey) return { error: new Error("Missing Supabase config") };
+          if (!isLocalMode() && supabase) await ensureDbReadableSession();
           const url = `${baseUrl}/rest/v1/prombutnes_dati?id=eq.${encodeURIComponent(String(id ?? ""))}`;
-          const headers = {
-            apikey: apiKey,
-            Authorization: `Bearer ${apiKey}`,
-          };
+          const headers = { ...(await restAuthHeaders()) };
           if (payload && (method === "PATCH" || method === "POST")) {
             headers["Content-Type"] = "application/json";
           }
@@ -1475,7 +1506,24 @@
           if (TIKAI_VIENKARSI_SKATS) {
             return sessionStorage.getItem(LS_LOCAL_NAME) || "Komanda";
           }
-          return sessionStorage.getItem(LS_LOCAL_NAME) || "PDD lietotājs";
+          if (isLocalMode()) {
+            const nm = sessionStorage.getItem(LS_LOCAL_NAME);
+            if (nm && String(nm).trim()) return String(nm).trim();
+            const em = sessionStorage.getItem(LS_LOCAL_EMAIL);
+            if (em) {
+              const part = String(em).split("@")[0].trim();
+              return part || String(em).trim();
+            }
+            return "";
+          }
+          const g = String(globalThis.__PDD_ACTOR_DISPLAY_NAME__ ?? "").trim();
+          if (g) return g;
+          const em = String(globalThis.__PDD_ACTOR_EMAIL__ ?? "").trim();
+          if (em) {
+            const part = em.split("@")[0].trim();
+            return part || em;
+          }
+          return "";
         }
 
         function ensureLocalTypes() {
@@ -1737,7 +1785,16 @@
               }
               if (!cancelled) {
                 if (error) console.error(error);
-                setProfile(data ? normalizeTeamUserRecord(data) : null);
+                if (!data) {
+                  setProfile(null);
+                } else {
+                  const rid = data?.id;
+                  const merged = {
+                    ...data,
+                    id: rid != null && String(rid).trim() !== "" ? rid : userId,
+                  };
+                  setProfile(normalizeTeamUserRecord(merged));
+                }
                 setLoading(false);
               }
             })();
@@ -1909,26 +1966,26 @@
                     >
                       Prombūtnes
                     </button>
-                  ${view === "prombutnes"
+                  ${view === "prombutnes" || view === "home"
                       ? html`
                           <div class="app-nav-sub" role="group" aria-label="Prombūtnes apakšsadaļas">
                             <button
                               type="button"
-                              class=${`app-nav-sublink ${promSub === "calendar" ? "active" : ""}`}
+                              class=${`app-nav-sublink ${view === "prombutnes" && promSub === "calendar" ? "active" : ""}`}
                               onClick=${() => onPromSubChange("calendar")}
                             >
                               Kalendārs
                             </button>
                             <button
                               type="button"
-                              class=${`app-nav-sublink ${promSub === "request" ? "active" : ""}`}
+                              class=${`app-nav-sublink ${view === "prombutnes" && promSub === "request" ? "active" : ""}`}
                               onClick=${() => onPromSubChange("request")}
                             >
                               Prombūtnes pieteikums
                             </button>
                             <button
                               type="button"
-                              class=${`app-nav-sublink ${promSub === "history" ? "active" : ""}`}
+                              class=${`app-nav-sublink ${view === "prombutnes" && promSub === "history" ? "active" : ""}`}
                               onClick=${() => onPromSubChange("history")}
                             >
                               Prombūtnes vēsture
@@ -1940,7 +1997,7 @@
                               ? html`
                                   <button
                                     type="button"
-                                    class=${`app-nav-sublink ${promSub === "deputy" ? "active" : ""}`}
+                                    class=${`app-nav-sublink ${view === "prombutnes" && promSub === "deputy" ? "active" : ""}`}
                                     onClick=${() => onPromSubChange("deputy")}
                                   >
                                     Apstiprinātāja maiņa
@@ -1949,7 +2006,7 @@
                               : null}
                             <button
                               type="button"
-                              class=${`app-nav-sublink ${promSub === "changes" ? "active" : ""}`}
+                              class=${`app-nav-sublink ${view === "prombutnes" && promSub === "changes" ? "active" : ""}`}
                               onClick=${() => onPromSubChange("changes")}
                             >
                               Auditācijas vēsture
@@ -2141,7 +2198,7 @@
                             class="cal-chip"
                             style=${chipStyle(a)}
                             title=${[
-                              userDisplayName(a.employee) !== "—" ? userDisplayName(a.employee) : "Darbinieks",
+                              userDisplayName(a.employee) || "Darbinieks",
                               a.type?.name ?? "",
                               a.status,
                               a.comment
@@ -2162,9 +2219,7 @@
                               }
                             }}
                           >
-                            ${userDisplayName(a.employee) !== "—"
-                              ? userDisplayName(a.employee)
-                              : "?"}
+                            ${userDisplayName(a.employee) || "?"}
                             · ${a.type?.name ?? ""}${
                               isCitsType && periodLabel
                                 ? html`
@@ -2224,7 +2279,16 @@
           `;
         }
 
-        function AbsenceRequestForm({ userId, onCreated, notifyEmail, presetDate, onConsumePreset, canApproveRequests }) {
+        function AbsenceRequestForm({
+          userId,
+          sessionEmail,
+          actorDisplayName,
+          onCreated,
+          notifyEmail,
+          presetDate,
+          onConsumePreset,
+          canApproveRequests,
+        }) {
           const [types, setTypes] = useState([]);
           const [typeId, setTypeId] = useState("");
           const [startDate, setStartDate] = useState("");
@@ -2235,11 +2299,65 @@
           const [citsToTime, setCitsToTime] = useState("17:00");
           const [busy, setBusy] = useState(false);
           const [users, setUsers] = useState([]);
-          const [selectedUserId, setSelectedUserId] = useState("");
+          const [selectedUserId, setSelectedUserId] = useState(() => {
+            const u =
+              String(userId ?? "").trim() || String(sessionStorage.getItem(LS_LOCAL_USER_ID) ?? "").trim();
+            return u || null;
+          });
           const [citsRows, setCitsRows] = useState([]);
           const [decisionReason, setDecisionReason] = useState({});
           const currentTypeObj = types.find((t) => String(t.id) === String(typeId)) ?? null;
           const isCitsFlow = Boolean(currentTypeObj && isCitsSaskanotsTypeName(currentTypeObj.name));
+          const selfRowLabel = useMemo(() => {
+            const fromProfile = String(actorDisplayName ?? "").trim();
+            if (fromProfile) return fromProfile;
+            const loc = String(localDisplayName() ?? "").trim();
+            if (loc) return loc;
+            const em = String(
+              sessionEmail ?? globalThis.__PDD_ACTOR_EMAIL__ ?? sessionStorage.getItem(LS_LOCAL_EMAIL) ?? ""
+            ).trim();
+            if (em) return em.split("@")[0].trim() || em;
+            return "";
+          }, [actorDisplayName, sessionEmail, userId]);
+          const resolvedUserId = useMemo(
+            () => String(userId ?? "").trim() || String(sessionStorage.getItem(LS_LOCAL_USER_ID) ?? "").trim(),
+            [userId]
+          );
+          const usersForSelect = useMemo(() => {
+            const list = Array.isArray(users) ? [...users] : [];
+            const uid = String(resolvedUserId ?? "").trim();
+            const cmp = (a, b) => String(userDisplayName(a)).localeCompare(String(userDisplayName(b)), "lv");
+            if (!uid) return list.filter((u) => String(u?.id ?? "").trim()).sort(cmp);
+            let withSelf = list;
+            if (!withSelf.some((u) => String(u.id) === uid)) {
+              const nm = selfRowLabel;
+              withSelf = [
+                {
+                  id: uid,
+                  full_name: nm,
+                  [COL_USER_NAME]: nm,
+                  [COL_USER_IMAIL]: String(sessionEmail ?? globalThis.__PDD_ACTOR_EMAIL__ ?? "").trim() || "",
+                  [COL_USER_AMATS]: "",
+                },
+                ...withSelf,
+              ];
+            }
+            const me = withSelf.filter((u) => String(u.id) === uid);
+            const rest = withSelf.filter((u) => String(u.id) !== uid).sort(cmp);
+            return [...me.map((u) => normalizeTeamUserRecord(u)), ...rest.map((u) => normalizeTeamUserRecord(u))];
+          }, [users, resolvedUserId, sessionEmail, selfRowLabel]);
+          const employeeSelectValue = useMemo(() => {
+            const opts = usersForSelect.map((u) => String(u.id));
+            const pick = (v) => {
+              const s = String(v ?? "").trim();
+              return s && opts.includes(s) ? s : "";
+            };
+            const fromState = pick(selectedUserId);
+            if (fromState) return fromState;
+            const fromActor = pick(resolvedUserId);
+            if (fromActor) return fromActor;
+            return opts[0] ?? "";
+          }, [usersForSelect, selectedUserId, resolvedUserId]);
 
           function buildCitsPeriodLabelLv({ allDay, fromTime, toTime }) {
             if (allDay === true) return "Visa diena";
@@ -2294,43 +2412,129 @@
             setCitsAllDay(true);
           }, [isCitsFlow]);
           useEffect(() => {
+            const uid = String(resolvedUserId ?? "").trim();
+            if (uid) setSelectedUserId(uid);
+          }, [resolvedUserId]);
+          useEffect(() => {
             let cancelled = false;
             (async () => {
-              const locName = localDisplayName();
+              const nm =
+                String(actorDisplayName ?? "").trim() ||
+                String(localDisplayName() ?? "").trim() ||
+                (String(sessionEmail ?? "").split("@")[0] || "").trim() ||
+                "";
+              const uidForFetch = String(userId ?? "").trim() || String(sessionStorage.getItem(LS_LOCAL_USER_ID) ?? "").trim();
               const list = await fetchAbsenceFormUsers(supabase, {
                 localMode: isLocalMode(),
                 localUser: {
-                  id: userId,
-                  full_name: locName,
-                  [COL_USER_NAME]: locName,
-                  [COL_USER_IMAIL]: "demo@local",
+                  id: uidForFetch || userId,
+                  full_name: nm,
+                  [COL_USER_NAME]: nm,
+                  [COL_USER_IMAIL]: String(sessionEmail || "demo@local"),
                   [COL_USER_AMATS]: "",
                 },
               });
               if (cancelled) return;
-              const safeList = Array.isArray(list) && list.length
-                ? list
-                : [{
-                    id: String(userId || ""),
-                    full_name: localDisplayName(),
-                    [COL_USER_NAME]: localDisplayName(),
-                    [COL_USER_IMAIL]: "",
+              const uid = String(userId ?? "").trim() || String(sessionStorage.getItem(LS_LOCAL_USER_ID) ?? "").trim();
+              const emailKey = String(sessionEmail ?? "").trim().toLowerCase();
+              let safeList = Array.isArray(list) && list.length ? list.map((u) => normalizeTeamUserRecord(u)) : [];
+              if (!safeList.length && uid) {
+                safeList = [
+                  normalizeTeamUserRecord({
+                    id: uid,
+                    full_name: nm,
+                    [COL_USER_NAME]: nm,
+                    [COL_USER_IMAIL]: sessionEmail || "",
                     [COL_USER_AMATS]: "",
-                  }];
+                  }),
+                ];
+              } else if (uid) {
+                const byId = safeList.findIndex((u) => String(u.id) === uid);
+                if (byId < 0 && emailKey) {
+                  const byEm = safeList.findIndex(
+                    (u) => String(userImail(u) ?? "").trim().toLowerCase() === emailKey
+                  );
+                  if (byEm >= 0) {
+                    const row = safeList[byEm];
+                    const dbName = String(userDisplayName(row) ?? "").trim();
+                    const label = dbName || nm;
+                    const merged = normalizeTeamUserRecord({
+                      ...row,
+                      id: uid,
+                      full_name: label,
+                      [COL_USER_NAME]: label,
+                    });
+                    safeList = [merged, ...safeList.filter((_, i) => i !== byEm)];
+                  } else {
+                    safeList = [
+                      normalizeTeamUserRecord({
+                        id: uid,
+                        full_name: nm,
+                        [COL_USER_NAME]: nm,
+                        [COL_USER_IMAIL]: sessionEmail || "",
+                        [COL_USER_AMATS]: "",
+                      }),
+                      ...safeList,
+                    ];
+                  }
+                } else if (byId < 0) {
+                  safeList = [
+                    normalizeTeamUserRecord({
+                      id: uid,
+                      full_name: nm,
+                      [COL_USER_NAME]: nm,
+                      [COL_USER_IMAIL]: sessionEmail || "",
+                      [COL_USER_AMATS]: "",
+                    }),
+                    ...safeList,
+                  ];
+                } else if (byId >= 0 && nm) {
+                  const row = safeList[byId];
+                  const cur = String(userDisplayName(row) ?? "").trim();
+                  if (!cur || cur === emailKey.split("@")[0]) {
+                    safeList = [...safeList];
+                    safeList[byId] = normalizeTeamUserRecord({
+                      ...row,
+                      full_name: nm,
+                      [COL_USER_NAME]: nm,
+                    });
+                  }
+                }
+              }
               setUsers(safeList);
-              const uid = String(userId);
-              const selfUser = safeList.find((u) => String(u.id) === uid) ?? null;
-              const selfId = selfUser?.id ?? uid;
-              const defaultId = selfId || (safeList[0]?.id ?? "");
               setSelectedUserId((prev) => {
-                if (prev && safeList.some((u) => String(u.id) === String(prev))) return prev;
-                return defaultId;
+                const p = prev != null && String(prev).trim() !== "" ? String(prev).trim() : null;
+                if (p && safeList.some((u) => String(u.id) === String(p))) return p;
+                if (uid && safeList.some((u) => String(u.id) === uid)) return uid;
+                const first = String(safeList[0]?.id ?? "").trim();
+                if (first) return first;
+                return uid || null;
               });
             })();
             return () => {
               cancelled = true;
             };
-          }, [userId]);
+          }, [userId, sessionEmail, actorDisplayName]);
+          useEffect(() => {
+            const uid = String(userId ?? "").trim();
+            const label = String(actorDisplayName ?? "").trim();
+            if (!uid || !label) return;
+            setUsers((prev) => {
+              if (!Array.isArray(prev) || !prev.length) return prev;
+              const i = prev.findIndex((u) => String(u.id) === uid);
+              if (i < 0) return prev;
+              const row = prev[i];
+              const cur = String(userDisplayName(row) ?? "").trim();
+              if (cur === label) return prev;
+              const next = [...prev];
+              next[i] = normalizeTeamUserRecord({
+                ...row,
+                full_name: label,
+                [COL_USER_NAME]: label,
+              });
+              return next;
+            });
+          }, [userId, actorDisplayName]);
           useEffect(() => {
             if (!presetDate) return;
             setStartDate(presetDate);
@@ -2408,7 +2612,7 @@
           }
           async function handleSubmit(e) {
             e.preventDefault();
-            const finalUserId = String(selectedUserId || userId || "").trim();
+            const finalUserId = String(employeeSelectValue ?? "").trim();
             if (!typeId || !finalUserId) {
               alert("Nav lietotāju atlase");
               return;
@@ -2481,7 +2685,7 @@
                 setCitsFromTime("09:00");
                 setCitsToTime("17:00");
                 setTypeId("");
-                setSelectedUserId((prev) => prev || String(userId || ""));
+                setSelectedUserId(null);
                 onCreated();
                 return;
               }
@@ -2528,7 +2732,7 @@
               setEndDate("");
               setComment("");
               setTypeId("");
-              setSelectedUserId((prev) => prev || userId);
+              setSelectedUserId(null);
               onCreated();
             } finally {
               setBusy(false);
@@ -2549,17 +2753,22 @@
                     id="employee"
                     class="select"
                     required
-                    value=${selectedUserId || String(userId || "")}
-                    onChange=${(ev) => setSelectedUserId(ev.target.value)}
+                    value=${employeeSelectValue}
+                    onChange=${(ev) => {
+                      const v = String(ev.target.value ?? "").trim();
+                      setSelectedUserId(v || null);
+                    }}
                   >
-                    ${(users ?? []).map(
+                    ${usersForSelect.map(
                       (u) => html`
                         <option key=${u.id} value=${u.id}>${userDisplayName(u)}</option>
                       `
                     )}
                   </select>
                   <span style=${{ fontSize: "0.78rem", color: "var(--muted)" }}>
-                    Saraksts no datubāzes (Komanda). Pēc noklusējuma — tavs vārds; var izvēlēties citu darbinieku.
+                    ${selfRowLabel
+                      ? html`Pēc noklusējuma izvēlēts: <strong>${selfRowLabel}</strong>. Citus darbiniekus vari atlasīt, ja nepieciešams.`
+                      : html`Ielādē tavu vārdu no konta…`}
                   </span>
                 </div>
                 <div class="field">
@@ -2874,7 +3083,7 @@
                               users ?? []
                             ).filter((u) => String(u.id) !== String(currentUserId)).map((u) => {
                               const em = u.email ?? userImail(u);
-                              return html`<option key=${u.id} value=${u.id}>${u["Vārds uzvārds"] ?? u.full_name ?? "—"} · ${em}</option>`;
+                              return html`<option key=${u.id} value=${u.id}>${userDisplayName(u) || em || ""} · ${em}</option>`;
                             })}
                           </select>
                         </div>
@@ -3548,6 +3757,7 @@
           highlightAbsenceId,
           onClearHighlight,
           canApproveAbsences,
+          sessionEmail,
         }) {
           const [editing, setEditing] = useState(null);
           const [delId, setDelId] = useState(null);
@@ -3555,9 +3765,8 @@
           const [histPage, setHistPage] = useState(0);
           const HIST_PAGE_SIZE = 20;
           const [periodPickerOpen, setPeriodPickerOpen] = useState(false);
-          // Pēc noklusējuma vēsture rāda atlasīto mēnesi (calendar state).
-          // Lietotājs var to mainīt uz “Visi periodi” vai “no–līdz”.
-          const [periodMode, setPeriodMode] = useState("month"); // 'month' | 'all' | 'range'
+          // Noklusējumā — visi ieraksti no DB; „Šis mēnesis” / no–līdz var atlasīt atsevišķi.
+          const [periodMode, setPeriodMode] = useState("all"); // 'month' | 'all' | 'range'
           const [periodFrom, setPeriodFrom] = useState("");
           const [periodTo, setPeriodTo] = useState("");
           const [form, setForm] = useState({ type_id: "", start_date: "", end_date: "", comment: "" });
@@ -3578,13 +3787,10 @@
           const filterStatusActive = String(filters?.status ?? "").trim() !== "";
           const filterRejectReasonActive = String(filters?.rejectReason ?? "").trim() !== "";
           function userShownFromFull(userFull) {
-            const uf = userFull ?? "—";
-            const userParts = String(uf).split(/\s+/).filter(Boolean);
-            return uf === "—"
-              ? "—"
-              : userParts.length <= 2
-                ? uf
-                : `${userParts[0]} ${userParts[userParts.length - 1]}`;
+            const s = String(userFull ?? "").trim();
+            if (!s) return "";
+            const userParts = s.split(/\s+/).filter(Boolean);
+            return userParts.length <= 2 ? s : `${userParts[0]} ${userParts[userParts.length - 1]}`;
           }
           function clearFilters() {
             setFilters({ name: "", type: "", start: "", end: "", comment: "", status: "", rejectReason: "" });
@@ -3647,14 +3853,25 @@
             setFilters((prev) => ({ ...prev, [key]: "" }));
           }
           function isOwnAbsence(a) {
-            return String(a?.user_id ?? "").trim() === String(userId ?? "").trim();
+            const uid = String(userId ?? "").trim();
+            if (uid && String(a?.user_id ?? "").trim() === uid) return true;
+            const em = String(sessionEmail ?? "").trim().toLowerCase();
+            const ls = String(sessionStorage.getItem(LS_LOCAL_EMAIL) ?? "").trim().toLowerCase();
+            const want = em || ls;
+            if (want && a?.employee) {
+              const uem = String(firstUserEmailField(a.employee) || userImail(a.employee) || "")
+                .trim()
+                .toLowerCase();
+              if (uem && uem === want) return true;
+            }
+            return false;
           }
           const sortedList = useMemo(() => {
             const list = approverView ? absences : absences.filter((a) => isOwnAbsence(a));
             return [...list].sort((a, b) =>
               String(b.created_at || "").localeCompare(String(a.created_at || ""))
             );
-          }, [absences, approverView, userId]);
+          }, [absences, approverView, userId, sessionEmail]);
           const filteredList = useMemo(() => {
             const includesMatch =
               window.PDDFiltr?.includesMatch ??
@@ -3933,6 +4150,13 @@
               >
                 <h2 style=${{ margin: 0, fontSize: "1rem" }}>Prombūtnes vēsture</h2>
                 <div class="row" style=${{ gap: "0.35rem", flexWrap: "wrap" }}>
+                  ${!isLocalMode()
+                    ? html`
+                        <button type="button" class="btn btn-ghost btn-small" onClick=${() => void onRefresh()} title="Pārlādēt datus no Supabase">
+                          Atjaunot no DB
+                        </button>
+                      `
+                    : null}
                   ${highlightAbsenceId
                     ? html`
                         <button type="button" class="btn btn-ghost btn-small" onClick=${onClearHighlight}>
@@ -4233,8 +4457,8 @@
                             const userFull = userDisplayName(a.employee);
                             const userParts = String(userFull).split(/\s+/).filter(Boolean);
                             const userShown =
-                              userFull === "—"
-                                ? "—"
+                              !String(userFull).trim()
+                                ? ""
                                 : userParts.length <= 2
                                   ? userFull
                                   : `${userParts[0]} ${userParts[userParts.length - 1]}`;
@@ -4645,7 +4869,16 @@
           `;
         }
 
-        function PrombutnesSection({ userId, role, rawRole, promSub, setPromSub, onAbsencesSnapshot }) {
+        function PrombutnesSection({
+          userId,
+          role,
+          rawRole,
+          promSub,
+          setPromSub,
+          onAbsencesSnapshot,
+          sessionEmail,
+          actorDisplayName,
+        }) {
           const [month, setMonth] = useState(() => new Date());
           const [absences, setAbsences] = useState([]);
           const [typesList, setTypesList] = useState([]);
@@ -4746,8 +4979,6 @@
           );
           const notifyEmail = "katrina.jirgensone@vid.gov.lv";
           const canApprove = userCanApproveAbsences(role, userId, deputyEffectiveId);
-          const absenceNavSnapRef = useRef({ userId: "", canApprove: false, onAbsencesSnapshot: null });
-          absenceNavSnapRef.current = { userId, canApprove, onAbsencesSnapshot };
           const refresh = useCallback(async () => {
             setError(null);
             if (isLocalMode()) {
@@ -4770,10 +5001,6 @@
                 }))
                 .sort((a, b) => a.start_date.localeCompare(b.start_date));
               setAbsences(list);
-              {
-                const s = absenceNavSnapRef.current;
-                s.onAbsencesSnapshot?.(list, s.userId, s.canApprove);
-              }
               return;
             }
             await ensureDbReadableSession();
@@ -4785,10 +5012,13 @@
             let absRows = rows;
             let absErr = qErr;
             if (absErr) {
-              const rr = await fetchTableDirectFromRest("prombutnes_dati", {
+              let rr = await fetchTableDirectFromRest("prombutnes_dati", {
                 orderBy: ABSENCE_COLS_RUNTIME.start_date,
                 ascending: true,
               });
+              if (rr.error) {
+                rr = await fetchTableDirectFromRest("prombutnes_dati");
+              }
               absRows = rr.data;
               absErr = rr.error;
             }
@@ -4824,7 +5054,7 @@
             const tmap = new Map(
               (typesRows ?? []).map((t) => {
                 const nt = normalizeAbsenceTypeRecord(t);
-                return [nt.id, nt];
+                return [String(nt.id), nt];
               })
             );
             // 4) Normalizējam prombūtnes datus
@@ -4835,28 +5065,28 @@
               })
               .map((r) => {
                 const employee = pmap.get(String(r.user_id)) ?? null;
+                const dn = userDisplayName(employee);
                 const employeeName =
-                  userDisplayName(employee) !== "—"
-                    ? userDisplayName(employee)
-                    : (r["Vārds uzvārds"] ?? r["Vards uzvards"] ?? "—");
+                  dn ||
+                  String(r["Vārds uzvārds"] ?? r["Vards uzvards"] ?? "").trim() ||
+                  String(r.user_id ?? "").trim();
                 return {
                   ...r,
                   employee: employee
                     ? { ...employee, [COL_USER_NAME]: employeeName }
                     : { id: r.user_id, [COL_USER_NAME]: employeeName },
-                  type: tmap.get(r.type_id) ?? null,
+                  type: tmap.get(String(r.type_id ?? "")) ?? null,
                   approver_user: r.approved_by ? pmap.get(String(r.approved_by)) ?? null : null,
                 };
               });
             setAbsences(list);
-            {
-              const s = absenceNavSnapRef.current;
-              s.onAbsencesSnapshot?.(list, s.userId, s.canApprove);
-            }
           }, []);
           useEffect(() => {
             void refresh();
           }, [refresh]);
+          useEffect(() => {
+            onAbsencesSnapshot?.(absences, userId, canApprove);
+          }, [absences, userId, canApprove, onAbsencesSnapshot]);
 
           // URL param: ?citsRow=<id> → atvērt vēsturi un izcelt konkrēto ierakstu
           useEffect(() => {
@@ -4878,19 +5108,41 @@
           }, [loadTeamAndDeputy, refresh]);
           useEffect(() => {
             if (isLocalMode() || !supabase) return undefined;
+            let debounceT = null;
             const bump = () => {
-              void loadTeamAndDeputy();
-              void refresh();
+              clearTimeout(debounceT);
+              debounceT = setTimeout(() => {
+                void loadTeamAndDeputy();
+                void refresh();
+              }, 320);
             };
             const ch = supabase
               .channel("pdd-prombutnes-live")
               .on("postgres_changes", { event: "*", schema: "public", table: "prombutnes_dati" }, bump)
+              .on("postgres_changes", { event: "*", schema: "public", table: "prombutnes_veidi" }, bump)
               .on("postgres_changes", { event: "*", schema: "public", table: "users" }, bump)
-              .subscribe();
+              .subscribe((status, err) => {
+                if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+                  console.warn("[PDD Realtime]", status, err?.message ?? err);
+                }
+              });
             return () => {
+              clearTimeout(debounceT);
               void supabase.removeChannel(ch);
             };
           }, [loadTeamAndDeputy, refresh]);
+          useEffect(() => {
+            if (isLocalMode() || !supabase) return undefined;
+            const pull = () => {
+              if (document.visibilityState === "visible") void refresh();
+            };
+            window.addEventListener("focus", pull);
+            document.addEventListener("visibilitychange", pull);
+            return () => {
+              window.removeEventListener("focus", pull);
+              document.removeEventListener("visibilitychange", pull);
+            };
+          }, [refresh]);
           useEffect(() => {
             if (promSub === "deputy") setPromSub("calendar");
           }, [promSub, setPromSub]);
@@ -4955,10 +5207,11 @@
                       approverView=${canApprove}
                       historyOpen=${historyOpen}
                       onToggleHistory=${() => setHistoryOpen(true)}
-                      historyMonth=${new Date()}
+                      historyMonth=${month}
                       highlightAbsenceId=${highlightAbsenceId || highlightFromUrl}
                       onClearHighlight=${() => setHighlightAbsenceId(null)}
                       canApproveAbsences=${canApprove}
+                      sessionEmail=${sessionEmail ?? ""}
                     />
                   `
                 : null}
@@ -4966,6 +5219,8 @@
                 ? html`
                     <${AbsenceRequestForm}
                       userId=${userId}
+                      sessionEmail=${sessionEmail ?? ""}
+                      actorDisplayName=${actorDisplayName ?? ""}
                       onCreated=${() => void refresh()}
                       notifyEmail=${notifyEmail}
                       presetDate=${requestPresetDate}
@@ -5077,7 +5332,32 @@
         function App() {
           const { session, loading } = useSession();
           const { profile, loading: profileLoading } = useProfile(session?.user?.id, session?.user?.email);
-          const effectiveUserId = profile?.id ?? session?.user?.id ?? null;
+          /** `??` neaizstāj tukšu virkni — normalizēts profils var dot id "", tad jāņem auth/local uid. */
+          const effectiveUserId = (() => {
+            const a = String(profile?.id ?? "").trim();
+            const b = String(session?.user?.id ?? "").trim();
+            return a || b || null;
+          })();
+          const actorDisplayName = useMemo(() => {
+            if (!session?.user) return "";
+            let name = "";
+            if (profile) {
+              const pn = userDisplayName(profile);
+              if (pn) name = String(pn).trim();
+            }
+            if (!name) {
+              const meta = session.user.user_metadata ?? {};
+              name = String(meta.full_name ?? meta.name ?? meta.first_name ?? "").trim();
+              const fn = String(meta.first_name ?? "").trim();
+              const ln = String(meta.last_name ?? "").trim();
+              if (!name && (fn || ln)) name = `${fn} ${ln}`.trim();
+            }
+            const em = String(
+              profile?.email ?? session.user.email ?? sessionStorage.getItem(LS_LOCAL_EMAIL) ?? ""
+            ).trim();
+            if (!name && em) name = em.split("@")[0].trim();
+            return name;
+          }, [session?.user, profile]);
           const [view, setView] = useState("home");
           const [promSub, setPromSub] = useState("calendar");
           const [pendingCitsNav, setPendingCitsNav] = useState(false);
@@ -5085,6 +5365,29 @@
             const V = globalThis.PDDPrombutnesVesture;
             setPendingCitsNav(Boolean(V?.shouldShowPendingCitsNavBadge?.(list, uid, canAppr)));
           }, []);
+          useEffect(() => {
+            if (!session?.user) {
+              globalThis.__PDD_ACTOR_DISPLAY_NAME__ = "";
+              globalThis.__PDD_ACTOR_EMAIL__ = "";
+              return;
+            }
+            const em = String(profile?.email ?? session.user.email ?? "").trim();
+            globalThis.__PDD_ACTOR_EMAIL__ = em;
+            let name = "";
+            if (profile) {
+              const pn = userDisplayName(profile);
+              if (pn) name = String(pn).trim();
+            }
+            if (!name) {
+              const meta = session.user.user_metadata ?? {};
+              name = String(meta.full_name ?? meta.name ?? meta.first_name ?? "").trim();
+              const fn = String(meta.first_name ?? "").trim();
+              const ln = String(meta.last_name ?? "").trim();
+              if (!name && (fn || ln)) name = `${fn} ${ln}`.trim();
+            }
+            if (!name && em) name = em.split("@")[0].trim();
+            globalThis.__PDD_ACTOR_DISPLAY_NAME__ = name;
+          }, [session?.user, profile, profileLoading]);
           const showPromDeputyTab = false;
           const [citsToken, setCitsToken] = useState(() => readCitsTokenFromUrl());
           const title = useMemo(
@@ -5235,7 +5538,10 @@
                 if (v === "prombutnes") setPromSub("calendar");
               }}
               promSub=${promSub}
-              onPromSubChange=${setPromSub}
+              onPromSubChange=${(sub) => {
+                setPromSub(sub);
+                setView("prombutnes");
+              }}
               showPromDeputyTab=${showPromDeputyTab}
               showPendingCitsBadge=${pendingCitsNav}
               header=${html`
@@ -5243,8 +5549,10 @@
                   ${title}
                   <div class="row">
                     <span style=${{ color: "var(--muted)", fontSize: "0.9rem" }}>
-                      Iekšā: ${userDisplayName(profile) !== "—" ? userDisplayName(profile) : session.user.email}
-                      ${profile?.email || session?.user?.email ? html` · ${(profile?.email ?? session.user.email)}` : null}
+                      Iekšā: ${actorDisplayName || userDisplayName(profile) || session.user?.email || String(sessionStorage.getItem(LS_LOCAL_EMAIL) || "").trim() || localDisplayName() || "Lietotājs"}
+                      ${profile?.email || session?.user?.email || sessionStorage.getItem(LS_LOCAL_EMAIL)
+                        ? html` · ${profile?.email ?? session.user.email ?? sessionStorage.getItem(LS_LOCAL_EMAIL)}`
+                        : null}
                       ${TIKAI_VIENKARSI_SKATS ? html`<span> · lokāli</span>` : null}
                     </span>
                     ${TIKAI_VIENKARSI_SKATS ? null : html`<button type="button" class="btn btn-ghost btn-small" onClick=${signOut}>Iziet</button>`}
@@ -5267,6 +5575,8 @@
                       promSub=${"teamUsers"}
                       setPromSub=${() => {}}
                       onAbsencesSnapshot=${onAbsencesSnapshot}
+                      sessionEmail=${String(session?.user?.email || sessionStorage.getItem(LS_LOCAL_EMAIL) || "").trim()}
+                      actorDisplayName=${actorDisplayName}
                     />`
                 : html`<${PrombutnesSection}
                       userId=${effectiveUserId}
@@ -5275,6 +5585,8 @@
                       promSub=${promSub}
                       setPromSub=${setPromSub}
                       onAbsencesSnapshot=${onAbsencesSnapshot}
+                      sessionEmail=${String(session?.user?.email || sessionStorage.getItem(LS_LOCAL_EMAIL) || "").trim()}
+                      actorDisplayName=${actorDisplayName}
                     />`}
             </${AppShellWithNav}>
           `;
