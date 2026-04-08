@@ -45,7 +45,93 @@ function buildCitsCommentWithPeriodLv({ allDay, fromTime, toTime, comment }) {
   return c || null;
 }
 
+function sanitizeShortText(v) {
+  return String(v ?? "").trim().slice(0, 300);
+}
+
+function sanitizeLongText(v) {
+  return String(v ?? "").trim().slice(0, 2000);
+}
+
+function normalizeExtraFields(input) {
+  const src = input && typeof input === "object" ? input : {};
+  return {
+    Mani_aizvieto: sanitizeShortText(src.Mani_aizvieto ?? src.mani_aizvieto ?? src.replaced_by ?? ""),
+    Papildu_info: sanitizeLongText(src.Papildu_info ?? src.papildu_info ?? src.extra_info ?? ""),
+  };
+}
+
+function mergeExtraFieldsIntoPayload(payload, extras) {
+  const base = payload && typeof payload === "object" ? { ...payload } : {};
+  const n = normalizeExtraFields(extras);
+  return {
+    ...base,
+    Mani_aizvieto: n.Mani_aizvieto || null,
+    Papildu_info: n.Papildu_info || null,
+  };
+}
+
+function extractExtraFieldsFromRow(row) {
+  const src = row && typeof row === "object" ? row : {};
+  return normalizeExtraFields({
+    Mani_aizvieto: src.Mani_aizvieto ?? src.mani_aizvieto ?? "",
+    Papildu_info: src.Papildu_info ?? src.papildu_info ?? "",
+  });
+}
+
+async function loadExtraFieldsFromSupabase({ supabase, requestId }) {
+  if (!supabase) throw new Error("Nav Supabase klienta.");
+  if (!requestId) throw new Error("Trūkst requestId.");
+  const { data, error } = await supabase
+    .from("prombutnes_dati")
+    .select("id, Mani_aizvieto, Papildu_info")
+    .eq("id", requestId)
+    .maybeSingle();
+  if (error) throw new Error(error.message || "Neizdevās ielādēt papildu laukus.");
+  if (!data) return { Mani_aizvieto: "", Papildu_info: "" };
+  return extractExtraFieldsFromRow(data);
+}
+
+async function saveExtraFieldsToSupabase({ supabase, requestId, extras }) {
+  if (!supabase) throw new Error("Nav Supabase klienta.");
+  if (!requestId) throw new Error("Trūkst requestId.");
+  const patch = mergeExtraFieldsIntoPayload({}, extras);
+  const { data, error } = await supabase
+    .from("prombutnes_dati")
+    .update(patch)
+    .eq("id", requestId)
+    .select("id, Mani_aizvieto, Papildu_info")
+    .maybeSingle();
+  if (error) throw new Error(error.message || "Neizdevās saglabāt papildu laukus.");
+  return extractExtraFieldsFromRow(data);
+}
+
+function getExtraFieldsDefinition() {
+  return [
+    {
+      key: "Mani_aizvieto",
+      label: "Mani aizvieto",
+      type: "text",
+      placeholder: "Norādi kolēģi, kurš aizvieto",
+      maxLength: 300,
+    },
+    {
+      key: "Papildu_info",
+      label: "Papildu informācija, piem., būšu pieejama telefoniski, vai Raksti man Whatsapp u.t.t.",
+      type: "textarea",
+      placeholder: "Papildu informācija",
+      maxLength: 2000,
+    },
+  ];
+}
+
 window.PDD_CITS_PERIOD_HELPERS = {
   buildCitsPeriodLabelLv,
   buildCitsCommentWithPeriodLv,
+  getExtraFieldsDefinition,
+  normalizeExtraFields,
+  mergeExtraFieldsIntoPayload,
+  extractExtraFieldsFromRow,
+  loadExtraFieldsFromSupabase,
+  saveExtraFieldsToSupabase,
 };

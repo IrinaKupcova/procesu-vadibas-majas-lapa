@@ -1045,10 +1045,10 @@
         async function callSendPddEmail({ name, veids }) {
           if (TIKAI_VIENKARSI_SKATS || isLocalMode() || !supabase) return { skipped: true };
           const fnUrl = getSendPddEmailFnUrl();
-          if (!fnUrl) return { ok: false, reason: "missing_fn_url" };
+          if (!fnUrl) return { ok: false, reason: "missing_fn_url", fnUrl: "" };
           const cfg = loadConfig();
           const apiKey = String(cfg.key || "").trim();
-          if (!apiKey) return { ok: false, reason: "missing_anon_key" };
+          if (!apiKey) return { ok: false, reason: "missing_anon_key", fnUrl };
           const { data } = await supabase.auth.getSession();
           const token = String(data?.session?.access_token || "").trim() || apiKey;
           try {
@@ -1069,10 +1069,10 @@
               /* ignore */
             }
             if (!r.ok) console.warn("[send-pdd-email]", r.status, txt);
-            return { ok: r.ok, status: r.status, body: j, raw: txt };
+            return { ok: r.ok, status: r.status, body: j, raw: txt, fnUrl };
           } catch (e) {
             console.warn("[send-pdd-email]", e);
-            return { ok: false, error: e };
+            return { ok: false, error: e, fnUrl };
           }
         }
 
@@ -2715,9 +2715,20 @@
                   veids: String(typeObj?.name || "Cits"),
                 });
                 if (!emailResult?.ok) {
-                  const msg =
-                    String(emailResult?.body?.error || emailResult?.raw || emailResult?.reason || "").trim() ||
-                    "Nezināma kļūda";
+                  const errMsg =
+                    String(
+                      emailResult?.body?.error ||
+                        emailResult?.raw ||
+                        emailResult?.error?.message ||
+                        emailResult?.error ||
+                        emailResult?.reason ||
+                        ""
+                    ).trim() || "Nezināma kļūda";
+                  const where = String(emailResult?.fnUrl || "").trim();
+                  const statusPart = Number.isFinite(Number(emailResult?.status))
+                    ? ` (HTTP ${emailResult.status})`
+                    : "";
+                  const msg = `${errMsg}${statusPart}${where ? `\nURL: ${where}` : ""}`;
                   alert("Pieteikums saglabāts, bet e-pasta izsūtīšana neizdevās: " + msg);
                 }
                 void callPddResendApi({
@@ -2729,15 +2740,8 @@
                 const link = `${base}?citsRow=${encodeURIComponent(rowId)}`;
                 try {
                   await navigator.clipboard.writeText(link);
-                  alert(
-                    "Pieteikums saglabāts.\n\nSaite uz saskaņošanu ir nokopēta starpliktuvē – ielīmē to e-pastā vadītājam:\n\n" +
-                      link
-                  );
                 } catch {
-                  alert(
-                    "Pieteikums saglabāts.\n\nNokopē automātiski neizdevās. Izmanto šo saiti saskaņošanai (ielīmē e-pastā vadītājam):\n\n" +
-                      link
-                  );
+                  /* ignore clipboard errors */
                 }
                 setStartDate("");
                 setEndDate("");
