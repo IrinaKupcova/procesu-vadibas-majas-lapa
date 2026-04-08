@@ -404,6 +404,7 @@
 
       <!-- Lokālie dati + ziņas komandai (bez Supabase/API) -->
       <script src="./Komanda.js?v=20260407"></script>
+      <script src="./Sodien.js?v=20260408"></script>
       <script src="./Kalendars.js?v=20260407"></script>
       <script src="./Filtr.js?v=20260407"></script>
       <script src="./Saskaņošana.js?v=20260407"></script>
@@ -485,6 +486,8 @@
           laiks_no: ["Laiks_no", "laiks_no", "from_time", "time_from"],
           laiks_lidz: ["Laiks_lidz", "laiks_lidz", "to_time", "time_to"],
           comment: ["comment", "komentāri", "komentari", "komentārs", "komentars"],
+          mani_aizvieto: ["Mani_aizvieto", "mani_aizvieto", "aizvietotajs", "aizvietotājs"],
+          papildu_info: ["Papildu_info", "papildu_info", "papildus_info", "papildinformacija", "papildu informācija"],
           reject_reason: ["Atteikuma_iemesls", "atteikuma_iemesls", "Atteikuma iemesls", "atteikuma iemesls", "rejection_reason"],
           status: ["status", "statuss", "statuss"],
           approved_by: ["approved_by", "apstiprinaja", "apstiprinātājs", "apstiprinatajs"],
@@ -588,6 +591,8 @@
             laiks_no: laiksNoRaw ? String(laiksNoRaw) : null,
             laiks_lidz: laiksLidzRaw ? String(laiksLidzRaw) : null,
             comment: commentRaw == null ? null : String(commentRaw),
+            Mani_aizvieto: String(pickByAliases(r, ABSENCE_ALT_KEYS.mani_aizvieto, "") ?? "").trim() || null,
+            Papildu_info: String(pickByAliases(r, ABSENCE_ALT_KEYS.papildu_info, "") ?? "").trim() || null,
             reject_reason: rejectReasonRaw == null ? null : String(rejectReasonRaw),
             status: normalizeAbsenceStatus(statusRaw),
             approved_by: pickByAliases(r, ABSENCE_ALT_KEYS.approved_by, null),
@@ -2123,7 +2128,14 @@
           `;
         }
 
-        function Dashboard({ onOpenPrombutnes }) {
+        function Dashboard({ onOpenPrombutnes, absencesToday }) {
+          const sodienBlock = (() => {
+            try {
+              return globalThis.PDDSodien?.renderTodayInfo?.({ html, absences: absencesToday ?? [] }) ?? null;
+            } catch {
+              return null;
+            }
+          })();
           return html`
             <section aria-labelledby="dashboard-title">
               <h2 id="dashboard-title" class="app-sub" style=${{ marginBottom: "1rem", fontSize: "1rem" }}>
@@ -2143,6 +2155,7 @@
                   <p>Plānots.</p>
                 </div>
               </div>
+              ${sodienBlock}
             </section>
           `;
         }
@@ -2986,6 +2999,19 @@
                   : null}
 
                 <div class="field">
+                  <label for="pcom">Komentārs</label>
+                  <textarea
+                    id="pcom"
+                    class="textarea"
+                    placeholder="Nav obligāts"
+                    value=${comment}
+                    onChange=${(ev) => setComment(ev.target.value)}
+                  />
+                </div>
+                <p class="app-sub" style=${{ margin: "-0.15rem 0 0.1rem" }}>
+                  Ievieto papildus, ja vēlies
+                </p>
+                <div class="field">
                   <label for="preplace">Mani aizvieto</label>
                   <select
                     id="preplace"
@@ -3011,16 +3037,6 @@
                     placeholder="Brīvā teksta lauks (nav obligāts)"
                     value=${extraInfo}
                     onChange=${(ev) => setExtraInfo(ev.target.value)}
-                  />
-                </div>
-                <div class="field">
-                  <label for="pcom">Komentārs</label>
-                  <textarea
-                    id="pcom"
-                    class="textarea"
-                    placeholder="Nav obligāts"
-                    value=${comment}
-                    onChange=${(ev) => setComment(ev.target.value)}
                   />
                 </div>
                 <button type="submit" class="btn btn-primary" disabled=${busy}>
@@ -5517,9 +5533,11 @@
           const [view, setView] = useState("home");
           const [promSub, setPromSub] = useState("calendar");
           const [pendingCitsNav, setPendingCitsNav] = useState(false);
+          const [homeAbsencesSnapshot, setHomeAbsencesSnapshot] = useState([]);
           const onAbsencesSnapshot = useCallback((list, uid, canAppr) => {
             const V = globalThis.PDDPrombutnesVesture;
             setPendingCitsNav(Boolean(V?.shouldShowPendingCitsNavBadge?.(list, uid, canAppr)));
+            setHomeAbsencesSnapshot(Array.isArray(list) ? list : []);
           }, []);
           useEffect(() => {
             if (!session?.user) {
@@ -5722,6 +5740,7 @@
                       setView("prombutnes");
                       setPromSub("calendar");
                     }}
+                    absencesToday=${homeAbsencesSnapshot}
                   />`
                 : view === "team"
                   ? html`<${PrombutnesSection}
