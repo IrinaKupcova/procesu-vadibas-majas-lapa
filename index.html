@@ -596,13 +596,27 @@
           };
         }
 
-        function absencePayloadClassic({ userId, userName, typeId, startDate, endDate, comment, status, approvedBy, approvedAt }) {
+        function absencePayloadClassic({
+          userId,
+          userName,
+          typeId,
+          startDate,
+          endDate,
+          comment,
+          replacementUserId,
+          extraInfo,
+          status,
+          approvedBy,
+          approvedAt,
+        }) {
           return {
             "Vārds uzvārds": userId,
             type_id: Number(typeId),
             start_date: startDate,
             end_date: endDate,
             comment: comment ?? null,
+            Mani_aizvieto: replacementUserId ?? null,
+            Papildu_info: extraInfo ?? null,
             status,
             approved_by: approvedBy ?? null,
             approved_at: approvedAt ?? null,
@@ -616,25 +630,52 @@
           return userId;
         }
 
-        function absencePayloadDetected({ userId, userName, typeId, startDate, endDate, comment, status, approvedBy, approvedAt }) {
+        function absencePayloadDetected({
+          userId,
+          userName,
+          typeId,
+          startDate,
+          endDate,
+          comment,
+          replacementUserId,
+          extraInfo,
+          status,
+          approvedBy,
+          approvedAt,
+        }) {
           return {
             [ABSENCE_COLS_RUNTIME.user_id]: userId,
             [ABSENCE_COLS_RUNTIME.type_id]: Number(typeId),
             [ABSENCE_COLS_RUNTIME.start_date]: startDate,
             [ABSENCE_COLS_RUNTIME.end_date]: endDate,
             [ABSENCE_COLS_RUNTIME.comment]: comment ?? null,
+            Mani_aizvieto: replacementUserId ?? null,
+            Papildu_info: extraInfo ?? null,
             [ABSENCE_COLS_RUNTIME.status]: status,
             [ABSENCE_COLS_RUNTIME.approved_by]: approvedBy ?? null,
             [ABSENCE_COLS_RUNTIME.approved_at]: approvedAt ?? null,
           };
         }
 
-        function absencePayloadLatvian({ userId, typeId, startDate, endDate, comment, status, approvedBy, approvedAt }) {
+        function absencePayloadLatvian({
+          userId,
+          typeId,
+          startDate,
+          endDate,
+          comment,
+          replacementUserId,
+          extraInfo,
+          status,
+          approvedBy,
+          approvedAt,
+        }) {
           return {
             "Prombūtnes veids": Number(typeId),
             "Sākuma datums": startDate,
             "Beigu datums": endDate,
             "Komentāri": comment ?? null,
+            Mani_aizvieto: replacementUserId ?? null,
+            Papildu_info: extraInfo ?? null,
             STATUSS: status,
             "Apstiprinātājs": approvedBy ?? null,
             "Apstiprināts": approvedAt ?? null,
@@ -648,6 +689,8 @@
           startDate,
           endDate,
           comment,
+          replacementUserId,
+          extraInfo,
           status,
           approvedBy,
           approvedAt,
@@ -657,6 +700,8 @@
             sakuma_datums: startDate,
             beigu_datums: endDate,
             Komentārs: comment ?? null,
+            Mani_aizvieto: replacementUserId ?? null,
+            Papildu_info: extraInfo ?? null,
             Statuss: status,
             approved_by: approvedBy ?? null,
             created_at: approvedAt ?? null,
@@ -670,6 +715,8 @@
           startDate,
           endDate,
           comment,
+          replacementUserId,
+          extraInfo,
           status,
           approvedBy,
           approvedAt,
@@ -679,6 +726,8 @@
             Sakuma_datums: startDate,
             Beigu_datums: endDate,
             Komentars: comment ?? null,
+            Mani_aizvieto: replacementUserId ?? null,
+            Papildu_info: extraInfo ?? null,
             Statuss: status,
             approved_by: approvedBy ?? null,
             created_at: approvedAt ?? null,
@@ -2343,6 +2392,8 @@
           const [startDate, setStartDate] = useState("");
           const [endDate, setEndDate] = useState("");
           const [comment, setComment] = useState("");
+          const [replacementUserId, setReplacementUserId] = useState("");
+          const [extraInfo, setExtraInfo] = useState("");
           const [citsAllDay, setCitsAllDay] = useState(true);
           const [citsFromTime, setCitsFromTime] = useState("09:00");
           const [citsToTime, setCitsToTime] = useState("17:00");
@@ -2662,6 +2713,9 @@
           async function handleSubmit(e) {
             e.preventDefault();
             const finalUserId = String(employeeSelectValue ?? "").trim();
+            const replacementUser =
+              usersForSelect.find((u) => String(u?.id ?? "") === String(replacementUserId ?? "")) ?? null;
+            const replacementLabel = String(userDisplayName(replacementUser) || "").trim();
             if (!typeId || !finalUserId) {
               alert("Nav lietotāju atlase");
               return;
@@ -2694,6 +2748,8 @@
                       comment,
                     }),
                     Statuss: "pending",
+                    Mani_aizvieto: replacementLabel || null,
+                    Papildu_info: extraInfo.trim() || null,
                     approved_by: null,
                     created_at: nowIso,
                   })
@@ -2746,6 +2802,8 @@
                 setStartDate("");
                 setEndDate("");
                 setComment("");
+                setReplacementUserId("");
+                setExtraInfo("");
                 setCitsAllDay(true);
                 setCitsFromTime("09:00");
                 setCitsToTime("17:00");
@@ -2764,6 +2822,8 @@
                   start_date: startDate,
                   end_date: endDate,
                   comment: comment.trim() || null,
+                  Mani_aizvieto: replacementLabel || null,
+                  Papildu_info: extraInfo.trim() || null,
                   status: "approved",
                   approved_by: userId,
                   approved_at: nowIso,
@@ -2784,6 +2844,8 @@
                   startDate,
                   endDate,
                   comment: comment.trim() || null,
+                  replacementUserId: replacementLabel || null,
+                  extraInfo: extraInfo.trim() || null,
                   status: "approved",
                   approvedBy: null,
                   approvedAt: nowIso,
@@ -2796,6 +2858,8 @@
               setStartDate("");
               setEndDate("");
               setComment("");
+              setReplacementUserId("");
+              setExtraInfo("");
               setTypeId("");
               setSelectedUserId(null);
               onCreated();
@@ -2921,6 +2985,34 @@
                     `
                   : null}
 
+                <div class="field">
+                  <label for="preplace">Mani aizvieto</label>
+                  <select
+                    id="preplace"
+                    class="select"
+                    value=${replacementUserId}
+                    onChange=${(ev) => setReplacementUserId(String(ev.target.value || "").trim())}
+                  >
+                    <option value="">Nav norādīts</option>
+                    ${usersForSelect.map(
+                      (u) => html`
+                        <option key=${`rep-${u.id}`} value=${u.id}>${userDisplayName(u)}</option>
+                      `
+                    )}
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="pextra">
+                    Papildu informācija, piem., būšu pieejama telefoniski, vai Raksti man Watsapp u.t.t.
+                  </label>
+                  <textarea
+                    id="pextra"
+                    class="textarea"
+                    placeholder="Brīvā teksta lauks (nav obligāts)"
+                    value=${extraInfo}
+                    onChange=${(ev) => setExtraInfo(ev.target.value)}
+                  />
+                </div>
                 <div class="field">
                   <label for="pcom">Komentārs</label>
                   <textarea
