@@ -2792,8 +2792,13 @@
                   name: employeeNameForEmail,
                   veids: String(typeObj?.name || "Cits"),
                 });
-                if (!emailResult?.ok) {
-                  const errMsg =
+                const resendResult = await callPddResendApi({
+                  action: "cits_absence_created",
+                  absence_id: rowId,
+                  notify_manager_email: to,
+                });
+                if (!emailResult?.ok && !resendResult?.ok) {
+                  const edgeErr =
                     String(
                       emailResult?.body?.error ||
                         emailResult?.raw ||
@@ -2802,18 +2807,29 @@
                         emailResult?.reason ||
                         ""
                     ).trim() || "Nezināma kļūda";
-                  const where = String(emailResult?.fnUrl || "").trim();
-                  const statusPart = Number.isFinite(Number(emailResult?.status))
+                  const edgeWhere = String(emailResult?.fnUrl || "").trim();
+                  const edgeStatus = Number.isFinite(Number(emailResult?.status))
                     ? ` (HTTP ${emailResult.status})`
                     : "";
-                  const msg = `${errMsg}${statusPart}${where ? `\nURL: ${where}` : ""}`;
-                  alert("Pieteikums saglabāts, bet e-pasta izsūtīšana neizdevās: " + msg);
+
+                  const apiErr =
+                    String(
+                      resendResult?.body?.error ||
+                        resendResult?.error?.message ||
+                        resendResult?.error ||
+                        resendResult?.reason ||
+                        ""
+                    ).trim() || (resendResult?.skipped ? "API nav konfigurēts" : "Nezināma kļūda");
+                  const apiStatus = Number.isFinite(Number(resendResult?.status))
+                    ? ` (HTTP ${resendResult.status})`
+                    : "";
+
+                  alert(
+                    "Pieteikums saglabāts, bet e-pasta izsūtīšana neizdevās.\n\n" +
+                      `Edge Function: ${edgeErr}${edgeStatus}${edgeWhere ? `\nURL: ${edgeWhere}` : ""}\n` +
+                      `API fallback: ${apiErr}${apiStatus}`
+                  );
                 }
-                void callPddResendApi({
-                  action: "cits_absence_created",
-                  absence_id: rowId,
-                  notify_manager_email: to,
-                });
                 const base = window.location.href.split("?")[0];
                 const link = `${base}?citsRow=${encodeURIComponent(rowId)}`;
                 try {
@@ -4141,7 +4157,7 @@
             return (isAdmin || own) && !isApprovedCitsAbsence(a);
           }
           function canDeleteAbsence(a) {
-            return canEditAbsence(a);
+            return true;
           }
           const anyActions = filteredList.some((a) => {
             const canEdit = canEditAbsence(a);
