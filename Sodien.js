@@ -260,7 +260,7 @@ function renderTodayInfo({ html, absences }) {
         border: "1px solid rgba(14,116,144,0.55)",
       }}
     >
-      <h3 style=${{ margin: "0 0 0.75rem", fontSize: "1rem", color: "#075985" }}>Kas šodien aktuāls</h3>
+      <h3 style=${{ margin: "0 0 0.75rem", fontSize: "1rem", color: "#075985" }}>AKTUALITĀTES</h3>
 
       <div style=${{ fontWeight: 700, borderBottom: "1px solid rgba(14,116,144,0.35)", paddingBottom: "0.35rem", marginBottom: "0.55rem" }}>
         Šodien nav darbā
