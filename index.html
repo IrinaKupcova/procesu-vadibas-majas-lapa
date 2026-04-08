@@ -1139,6 +1139,24 @@
           }
         }
 
+        function openManualCitsEmailFallback({ name, veids, startDate, endDate, link }) {
+          const to = ["katrina.jirgensone@vid.gov.lv", "irina.kupcova@vid.gov.lv"].join(",");
+          const subject = "Jauns pieteikums";
+          const lines = [
+            `Vārds: ${String(name || "").trim() || "-"}`,
+            `Veids: ${String(veids || "").trim() || "Cits"}`,
+            `Periods: ${String(startDate || "").trim()} — ${String(endDate || "").trim()}`,
+            `Links: ${String(link || "").trim() || "https://irinakupcova.github.io/PDD_aplikacija/prombutnes-vesture"}`,
+          ];
+          const body = lines.join("\n");
+          const href = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+          try {
+            window.location.href = href;
+          } catch {
+            /* ignore */
+          }
+        }
+
         async function ensureDbReadableSession() {
           if (isLocalMode() || !supabase) return true;
           const s1 = await supabase.auth.getSession();
@@ -2829,6 +2847,13 @@
                       `Edge Function: ${edgeErr}${edgeStatus}${edgeWhere ? `\nURL: ${edgeWhere}` : ""}\n` +
                       `API fallback: ${apiErr}${apiStatus}`
                   );
+                  openManualCitsEmailFallback({
+                    name: employeeNameForEmail,
+                    veids: String(typeObj?.name || "Cits"),
+                    startDate,
+                    endDate,
+                    link: `${window.location.href.split("?")[0]}?citsRow=${encodeURIComponent(rowId)}`,
+                  });
                 }
                 const base = window.location.href.split("?")[0];
                 const link = `${base}?citsRow=${encodeURIComponent(rowId)}`;
