@@ -18,6 +18,13 @@ function escHtml(s) {
     .replace(/'/g, "&#39;");
 }
 
+function formatLvDate(iso) {
+  const s = pick(iso);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return s;
+  return `${m[3]}.${m[2]}.${m[1]}`;
+}
+
 function isTodayAway(a, today) {
   const st = pick(a?.status).toLowerCase();
   if (st && st !== "approved" && st !== "apstiprinats" && st !== "apstiprināts" && st !== "saskanots" && st !== "saskaņots") {
@@ -80,6 +87,10 @@ function cleanExpired(list) {
 
 function currentEditor() {
   return document.getElementById("sodien-akt-editor");
+}
+
+function currentEditIdField() {
+  return document.getElementById("sodien-edit-id");
 }
 
 function wrapSelectionWithStyle(styleText) {
@@ -159,13 +170,22 @@ function addAktualitate() {
     return;
   }
   const list = cleanExpired(loadAktualitates());
-  list.unshift({
-    id: crypto.randomUUID(),
+  const editId = pick(currentEditIdField()?.value || "");
+  const row = {
+    id: editId || crypto.randomUUID(),
     html: content,
     start: start || today,
     end: end || start || today,
+    use_period: usePeriod,
     created_at: new Date().toISOString(),
-  });
+  };
+  if (editId) {
+    const idx = list.findIndex((x) => String(x.id) === editId);
+    if (idx >= 0) list[idx] = { ...list[idx], ...row };
+    else list.unshift(row);
+  } else {
+    list.unshift(row);
+  }
   saveAktualitates(list);
   window.location.reload();
 }
@@ -174,6 +194,44 @@ function deleteAktualitate(id) {
   const list = cleanExpired(loadAktualitates()).filter((x) => String(x.id) !== String(id));
   saveAktualitates(list);
   window.location.reload();
+}
+
+function setFormMode(isEdit) {
+  const btn = document.getElementById("sodien-submit-btn");
+  if (btn) btn.textContent = isEdit ? "Saglabāt" : "Pievienot";
+}
+
+function resetAktualitateForm() {
+  const ed = currentEditor();
+  if (ed) ed.innerHTML = "";
+  const editField = currentEditIdField();
+  if (editField) editField.value = "";
+  const today = ymd(new Date());
+  const cb = document.getElementById("sodien-use-period");
+  const start = document.getElementById("sodien-start");
+  const end = document.getElementById("sodien-end");
+  if (cb) cb.checked = false;
+  if (start) start.value = today;
+  if (end) end.value = today;
+  setFormMode(false);
+}
+
+function editAktualitate(id) {
+  const item = cleanExpired(loadAktualitates()).find((x) => String(x.id) === String(id));
+  if (!item) return;
+  const details = document.getElementById("sodien-editor-details");
+  if (details) details.open = true;
+  const ed = currentEditor();
+  if (ed) ed.innerHTML = String(item.html || "");
+  const editField = currentEditIdField();
+  if (editField) editField.value = String(item.id);
+  const cb = document.getElementById("sodien-use-period");
+  const start = document.getElementById("sodien-start");
+  const end = document.getElementById("sodien-end");
+  if (cb) cb.checked = Boolean(item.use_period);
+  if (start) start.value = pick(item.start || ymd(new Date()));
+  if (end) end.value = pick(item.end || start?.value || ymd(new Date()));
+  setFormMode(true);
 }
 
 function visibleAktualitatesToday() {
@@ -249,11 +307,16 @@ function renderTodayInfo({ html, absences }) {
               ${aktualitates.map(
                 (x) => html`
                   <div key=${x.id} style=${{ border: "1px dashed rgba(2,132,199,0.55)", borderRadius: "10px", padding: "0.55rem 0.65rem", background: "rgba(255,255,255,0.8)" }}>
-                    <div style=${{ fontSize: "0.8rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
-                      Periods: ${x.start} — ${x.end}
-                    </div>
+                    ${x.use_period
+                      ? html`
+                          <div style=${{ fontSize: "0.8rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
+                            Periods: ${formatLvDate(x.start)} — ${formatLvDate(x.end)}
+                          </div>
+                        `
+                      : null}
                     <div style=${{ fontSize: "0.92rem" }} dangerouslySetInnerHTML=${{ __html: String(x.html || "") }}></div>
                     <div class="row" style=${{ marginTop: "0.45rem" }}>
+                      <button type="button" class="btn btn-ghost btn-small" onClick=${() => editAktualitate(x.id)}>Labot</button>
                       <button type="button" class="btn btn-danger btn-small" onClick=${() => deleteAktualitate(x.id)}>Dzēst</button>
                     </div>
                   </div>
@@ -263,9 +326,10 @@ function renderTodayInfo({ html, absences }) {
           `
         : html`<p style=${{ margin: "0 0 0.75rem", color: "var(--muted)" }}>Papildu aktualitātes nav pievienotas.</p>`}
 
-      <details>
+      <details id="sodien-editor-details">
         <summary style=${{ cursor: "pointer", fontWeight: 600 }}>Pievienot</summary>
         <div class="stack" style=${{ marginTop: "0.6rem", gap: "0.5rem" }}>
+          <input id="sodien-edit-id" type="hidden" value="" />
           <div class="row" style=${{ gap: "0.35rem", flexWrap: "wrap" }}>
             <button type="button" class="btn btn-ghost btn-small" onClick=${() => applyCmd("bold")}>B</button>
             <button type="button" class="btn btn-ghost btn-small" onClick=${() => applyCmd("italic")}>I</button>
@@ -330,7 +394,8 @@ function renderTodayInfo({ html, absences }) {
           </div>
 
           <div class="row">
-            <button type="button" class="btn btn-primary btn-small" onClick=${addAktualitate}>Pievienot</button>
+            <button id="sodien-submit-btn" type="button" class="btn btn-primary btn-small" onClick=${addAktualitate}>Pievienot</button>
+            <button type="button" class="btn btn-ghost btn-small" onClick=${resetAktualitateForm}>Atcelt</button>
           </div>
         </div>
       </details>
