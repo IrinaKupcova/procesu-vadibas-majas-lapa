@@ -98,6 +98,23 @@ function uniqEmails(list) {
   return out;
 }
 
+async function sendResendEmailStrict(resend, { from, to, subject, text }) {
+  const recipients = uniqEmails(to);
+  if (!recipients.length) throw new Error("Nav neviena derīga saņēmēja e-pasta.");
+  const failed = [];
+  for (const rcpt of recipients) {
+    try {
+      await sendResendEmail(resend, { from, to: rcpt, subject, text });
+    } catch (e) {
+      failed.push(`${rcpt}: ${String(e?.message || e)}`);
+    }
+  }
+  if (failed.length) {
+    throw new Error(`Neizdevās nosūtīt visiem saņēmējiem: ${failed.join("; ")}`);
+  }
+  return recipients;
+}
+
 async function onRequestCreated({
   supabase,
   resend,
@@ -134,6 +151,7 @@ async function onRequestCreated({
 
   const admin = await getFirstAdmin(supabase);
   const adminEmail = MANAGER_NOTIFY_EMAIL || pickUserEmail(admin);
+  // Vienmēr paziņojam Katrīnai + kopija Irinai (bez dublikātiem).
   const notifyTo = uniqEmails([adminEmail, MANAGER_NOTIFY_COPY_EMAIL]);
   if (!notifyTo.length) return { ok: true, notified: false, warning: "Vadītāja e-pasts nav atrasts." };
 
@@ -150,7 +168,7 @@ async function onRequestCreated({
     `Atvērt sistēmā: ${APPROVAL_LINK}`;
 
   const sends = [
-    sendResendEmail(resend, {
+    sendResendEmailStrict(resend, {
       from: fromEmail,
       to: notifyTo,
       subject: managerSubject,
