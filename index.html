@@ -444,6 +444,20 @@
         const LS_LOCAL_DEPUTY_USER_ID = "pdd_local_deputy_user_id";
         const LS_LOCAL_DEPUTY_FROM = "pdd_local_deputy_from";
         const LS_LOCAL_DEPUTY_TO = "pdd_local_deputy_to";
+        function getStickyAuthValue(key) {
+          const a = localStorage.getItem(key);
+          if (a != null && String(a).trim() !== "") return a;
+          return sessionStorage.getItem(key);
+        }
+        function setStickyAuthValue(key, value) {
+          const v = String(value ?? "");
+          localStorage.setItem(key, v);
+          sessionStorage.setItem(key, v);
+        }
+        function removeStickyAuthValue(key) {
+          localStorage.removeItem(key);
+          sessionStorage.removeItem(key);
+        }
         /** Pamata e-pasts paziņojumiem, kad nav aktīva aizvietotāja (saskaņā ar PDD iestatījumiem). */
         const DEFAULT_MANAGER_EMAIL = "pliada@inbox.lv";
         const DEFAULT_MANAGER_NAME = "Katrīna Jirgensone";
@@ -1096,45 +1110,74 @@
           }
         }
 
+        function isSendPddEmailResponseOk(body, httpOk) {
+          if (!httpOk) return false;
+          if (!body || typeof body !== "object") return true;
+          if (body.error) return false;
+          if (body.success === false) return false;
+          return body.success === true || body.success === undefined;
+        }
+
         async function callSendPddEmail({ name, veids }) {
           if (TIKAI_VIENKARSI_SKATS || isLocalMode() || !supabase) return { skipped: true };
+          await ensureDbReadableSession();
           const fnUrl = getSendPddEmailFnUrl();
           if (!fnUrl) return { ok: false, reason: "missing_fn_url", fnUrl: "" };
-          try {
-            const { data, error } = await supabase.functions.invoke("send-pdd-email", {
-              body: { name, veids },
-            });
-            if (!error) return { ok: true, status: 200, body: data, fnUrl };
-            console.warn("[send-pdd-email.invoke]", error);
-          } catch (e) {
-            console.warn("[send-pdd-email.invoke]", e);
-          }
           const cfg = loadConfig();
           const apiKey = String(cfg.key || "").trim();
           if (!apiKey) return { ok: false, reason: "missing_anon_key", fnUrl };
-          const { data } = await supabase.auth.getSession();
-          const token = String(data?.session?.access_token || "").trim() || apiKey;
-          try {
+          const { data: sess } = await supabase.auth.getSession();
+          const accessToken = String(sess?.session?.access_token || "").trim();
+          const bearer = accessToken || apiKey;
+
+          async function tryFetch() {
             const r = await fetch(fnUrl, {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
                 apikey: apiKey,
-                Authorization: "Bearer " + token,
+                Authorization: "Bearer " + bearer,
               },
               body: JSON.stringify({ name, veids }),
             });
             const txt = await r.text();
             let j = null;
             try {
-              j = JSON.parse(txt);
+              j = txt ? JSON.parse(txt) : null;
             } catch {
-              /* ignore */
+              j = { raw: txt };
             }
-            if (!r.ok) console.warn("[send-pdd-email]", r.status, txt);
-            return { ok: r.ok, status: r.status, body: j, raw: txt, fnUrl };
+            if (isSendPddEmailResponseOk(j, r.ok)) {
+              return { ok: true, status: r.status, body: j, fnUrl };
+            }
+            return { ok: false, status: r.status, body: j, raw: txt, fnUrl };
+          }
+
+          try {
+            const out = await tryFetch();
+            if (out.ok) return out;
+            console.warn("[send-pdd-email fetch]", out.status, out.raw || out.body);
           } catch (e) {
-            console.warn("[send-pdd-email]", e);
+            console.warn("[send-pdd-email fetch]", e);
+          }
+
+          try {
+            const { data, error } = await supabase.functions.invoke("send-pdd-email", {
+              body: { name, veids },
+            });
+            if (!error && isSendPddEmailResponseOk(data, true)) {
+              return { ok: true, status: 200, body: data, fnUrl };
+            }
+            if (error) console.warn("[send-pdd-email invoke]", error.message || error, error);
+            return {
+              ok: false,
+              status: error?.context?.status,
+              body: data,
+              error,
+              fnUrl,
+            };
+          } catch (e) {
+            console.warn("[send-pdd-email invoke]", e);
             return { ok: false, error: e, fnUrl };
           }
         }
@@ -1712,27 +1755,27 @@
 
         function localSessionActive() {
           if (ADMIN_AUTO_ENTER && isLocalMode()) return true;
-          return sessionStorage.getItem(LS_LOCAL_OK) === "1";
+          return getStickyAuthValue(LS_LOCAL_OK) === "1";
         }
 
         function ensureLocalAdminSession() {
           if (!ADMIN_AUTO_ENTER) return;
-          if (sessionStorage.getItem(LS_LOCAL_USER_ID)) return;
+          if (getStickyAuthValue(LS_LOCAL_USER_ID)) return;
           const users = window.KOMANDA?.loadTeamUsers?.() ?? [];
           const list = Array.isArray(users) ? users : [];
           const admin = list.find((u) => String(u?.role ?? "").toLowerCase() === "admin") ?? list[0];
           if (!admin) return;
-          sessionStorage.setItem(LS_LOCAL_OK, "1");
-          sessionStorage.setItem(LS_LOCAL_USER_ID, String(admin.id));
+          setStickyAuthValue(LS_LOCAL_OK, "1");
+          setStickyAuthValue(LS_LOCAL_USER_ID, String(admin.id));
           const em = String(admin.email ?? admin["i-mail"] ?? admin["e-pasts"] ?? "").trim();
-          if (em) sessionStorage.setItem(LS_LOCAL_EMAIL, em);
+          if (em) setStickyAuthValue(LS_LOCAL_EMAIL, em);
           const nm = String(admin[COL_USER_NAME] ?? admin.full_name ?? admin["Vārds uzvārds"] ?? "").trim();
-          if (nm) sessionStorage.setItem(LS_LOCAL_NAME, nm);
+          if (nm) setStickyAuthValue(LS_LOCAL_NAME, nm);
         }
 
         function LocalEmailLoginScreen() {
           const [teamUsers, setTeamUsers] = useState([]);
-          const [email, setEmail] = useState(() => sessionStorage.getItem(LS_LOCAL_EMAIL) || "");
+          const [email, setEmail] = useState(() => getStickyAuthValue(LS_LOCAL_EMAIL) || "");
           const [err, setErr] = useState(null);
 
           useEffect(() => {
@@ -1758,11 +1801,11 @@
               return;
             }
 
-            sessionStorage.setItem(LS_LOCAL_OK, "1");
-            sessionStorage.setItem(LS_LOCAL_USER_ID, String(pickedUser.id));
-            sessionStorage.setItem(LS_LOCAL_EMAIL, entered);
+            setStickyAuthValue(LS_LOCAL_OK, "1");
+            setStickyAuthValue(LS_LOCAL_USER_ID, String(pickedUser.id));
+            setStickyAuthValue(LS_LOCAL_EMAIL, entered);
             const nm = pickedUser[COL_USER_NAME] ?? pickedUser.full_name ?? pickedUser["Vārds uzvārds"] ?? "";
-            if (String(nm || "").trim()) sessionStorage.setItem(LS_LOCAL_NAME, String(nm).trim());
+            if (String(nm || "").trim()) setStickyAuthValue(LS_LOCAL_NAME, String(nm).trim());
             location.reload();
           }
           return html`
@@ -1806,8 +1849,8 @@
           useEffect(() => {
             if (TIKAI_VIENKARSI_SKATS) {
               ensureLocalAdminSession();
-              const uid = sessionStorage.getItem(LS_LOCAL_USER_ID) || LOCAL_USER_ID;
-              const em = sessionStorage.getItem(LS_LOCAL_EMAIL) || "local@pdd";
+              const uid = getStickyAuthValue(LS_LOCAL_USER_ID) || LOCAL_USER_ID;
+              const em = getStickyAuthValue(LS_LOCAL_EMAIL) || "local@pdd";
               setSession({ user: { id: uid, email: em } });
               setLoading(false);
               return;
@@ -1815,8 +1858,8 @@
             if (isLocalMode()) {
               ensureLocalAdminSession();
               if (localSessionActive()) {
-                const uid = sessionStorage.getItem(LS_LOCAL_USER_ID) || LOCAL_USER_ID;
-                const em = sessionStorage.getItem(LS_LOCAL_EMAIL) || "demo@local";
+                const uid = getStickyAuthValue(LS_LOCAL_USER_ID) || LOCAL_USER_ID;
+                const em = getStickyAuthValue(LS_LOCAL_EMAIL) || "demo@local";
                 setSession({ user: { id: uid, email: em } });
               } else {
                 setSession(null);
@@ -1824,9 +1867,9 @@
               setLoading(false);
               return;
             }
-            if (sessionStorage.getItem(LS_LOCAL_OK) === "1") {
-              const uid = sessionStorage.getItem(LS_LOCAL_USER_ID) || LOCAL_USER_ID;
-              const em = sessionStorage.getItem(LS_LOCAL_EMAIL) || "demo@local";
+            if (getStickyAuthValue(LS_LOCAL_OK) === "1") {
+              const uid = getStickyAuthValue(LS_LOCAL_USER_ID) || LOCAL_USER_ID;
+              const em = getStickyAuthValue(LS_LOCAL_EMAIL) || "demo@local";
               setSession({ user: { id: uid, email: em } });
               setLoading(false);
               return;
@@ -1862,16 +1905,16 @@
             }
             if (isLocalMode()) {
               const ln = localDisplayName();
-              const uid = sessionStorage.getItem(LS_LOCAL_USER_ID) || LOCAL_USER_ID;
+              const uid = getStickyAuthValue(LS_LOCAL_USER_ID) || LOCAL_USER_ID;
               const users = window.KOMANDA?.loadTeamUsers?.() ?? [];
               const me = (Array.isArray(users) ? users : []).find((u) => String(u.id) === String(uid)) ?? null;
               setProfile({
                 id: uid,
                 full_name: me?.full_name ?? me?.[COL_USER_NAME] ?? ln,
                 [COL_USER_NAME]: me?.[COL_USER_NAME] ?? me?.full_name ?? ln,
-                [COL_USER_IMAIL]: me?.[COL_USER_IMAIL] ?? me?.email ?? sessionStorage.getItem(LS_LOCAL_EMAIL) ?? "",
+                [COL_USER_IMAIL]: me?.[COL_USER_IMAIL] ?? me?.email ?? getStickyAuthValue(LS_LOCAL_EMAIL) ?? "",
                 [COL_USER_AMATS]: me?.[COL_USER_AMATS] ?? me?.Amats ?? "",
-                email: me?.email ?? sessionStorage.getItem(LS_LOCAL_EMAIL) ?? null,
+                email: me?.email ?? getStickyAuthValue(LS_LOCAL_EMAIL) ?? null,
                 raw_role: me?.role ?? null,
                 [COL_USER_ROLE]: userRoleValue(me),
                 role: userRoleValue(me),
@@ -2019,9 +2062,9 @@
                 }
                 uid = String(user.id);
               }
-              sessionStorage.setItem(LS_LOCAL_OK, "1");
-              sessionStorage.setItem(LS_LOCAL_USER_ID, uid);
-              sessionStorage.setItem(LS_LOCAL_EMAIL, entered);
+              setStickyAuthValue(LS_LOCAL_OK, "1");
+              setStickyAuthValue(LS_LOCAL_USER_ID, uid);
+              setStickyAuthValue(LS_LOCAL_EMAIL, entered);
               location.reload();
             } finally {
               setBusy(false);
@@ -2806,15 +2849,18 @@
                 );
                 const selectedUser = usersForSelect.find((u) => String(u?.id ?? "") === String(finalUserId)) || null;
                 const employeeNameForEmail = String(userDisplayName(selectedUser) || finalUserId).trim();
+                await ensureDbReadableSession();
                 const emailResult = await callSendPddEmail({
                   name: employeeNameForEmail,
                   veids: String(typeObj?.name || "Cits"),
                 });
-                const resendResult = await callPddResendApi({
-                  action: "cits_absence_created",
-                  absence_id: rowId,
-                  notify_manager_email: to,
-                });
+                const resendResult = emailResult?.ok
+                  ? { skipped: true, reason: "edge_ok" }
+                  : await callPddResendApi({
+                      action: "cits_absence_created",
+                      absence_id: rowId,
+                      notify_manager_email: to,
+                    });
                 if (!emailResult?.ok && !resendResult?.ok) {
                   const edgeErr =
                     String(
@@ -5726,11 +5772,11 @@
               setView("home");
               return;
             }
-            if (isLocalMode() || sessionStorage.getItem(LS_LOCAL_OK) === "1") {
-              sessionStorage.removeItem(LS_LOCAL_OK);
+            if (isLocalMode() || getStickyAuthValue(LS_LOCAL_OK) === "1") {
+              removeStickyAuthValue(LS_LOCAL_OK);
               sessionStorage.removeItem(LS_LOCAL_NAME);
-              sessionStorage.removeItem(LS_LOCAL_USER_ID);
-              sessionStorage.removeItem(LS_LOCAL_EMAIL);
+              removeStickyAuthValue(LS_LOCAL_USER_ID);
+              removeStickyAuthValue(LS_LOCAL_EMAIL);
               setView("home");
               location.reload();
               return;
