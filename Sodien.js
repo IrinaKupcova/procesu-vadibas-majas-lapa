@@ -87,6 +87,8 @@ let sodienUiOpts = {
   useSupabase: false,
   refreshAktualitates: null,
 };
+let selectedEditorImage = null;
+let selectedEditorAttachment = null;
 
 function ymd(d) {
   const dt = d instanceof Date ? d : new Date(d);
@@ -378,10 +380,125 @@ function onPickImage(ev) {
   fr.onload = () => {
     const src = String(fr.result || "");
     if (!src) return;
-    insertAtCursor(`<img src="${escHtml(src)}" alt="${escHtml(f.name)}" style="max-width:100%;border-radius:8px;" />`);
+    insertAtCursor(
+      `<img data-akt-img="1" draggable="true" src="${escHtml(src)}" alt="${escHtml(f.name)}"` +
+        ` style="display:block;max-width:100%;width:min(100%,420px);height:auto;border-radius:8px;margin:0.35rem 0;" />`,
+    );
   };
   fr.readAsDataURL(f);
   ev.target.value = "";
+}
+
+function markSelectedEditorImage(img) {
+  const ed = currentEditor();
+  if (selectedEditorImage && selectedEditorImage !== img) {
+    selectedEditorImage.classList.remove("sodien-selected-img");
+  }
+  selectedEditorImage = img && ed?.contains(img) ? img : null;
+  if (selectedEditorImage) selectedEditorImage.classList.add("sodien-selected-img");
+}
+
+function onEditorClickForImageSelection(ev) {
+  const ed = currentEditor();
+  if (!ed) return;
+  if (selectedEditorAttachment) {
+    selectedEditorAttachment.classList.remove("sodien-selected-attachment");
+    selectedEditorAttachment = null;
+  }
+  const link = ev?.target?.closest?.("a");
+  if (link && ed.contains(link)) {
+    selectedEditorAttachment = link;
+    selectedEditorAttachment.classList.add("sodien-selected-attachment");
+    markSelectedEditorImage(null);
+    return;
+  }
+  const img = ev?.target?.closest?.("img");
+  if (img && ed.contains(img)) {
+    markSelectedEditorImage(img);
+    return;
+  }
+  markSelectedEditorImage(null);
+}
+
+function withSelectedImage(fn) {
+  const ed = currentEditor();
+  if (!ed || !selectedEditorImage || !ed.contains(selectedEditorImage)) {
+    alert("Vispirms uzklikšķini uz bildes teksta zonā.");
+    return;
+  }
+  fn(selectedEditorImage, ed);
+}
+
+function resizeSelectedImage(multiplier) {
+  withSelectedImage((img, ed) => {
+    const edWidth = Math.max(120, Math.floor(ed.clientWidth - 16));
+    const current = Math.max(40, Math.floor(img.getBoundingClientRect().width || 0));
+    const next = Math.min(edWidth, Math.max(60, Math.round(current * multiplier)));
+    img.style.width = `${next}px`;
+    img.style.maxWidth = "100%";
+    img.style.height = "auto";
+  });
+}
+
+function alignSelectedImage(mode) {
+  withSelectedImage((img) => {
+    if (mode === "left") img.style.margin = "0.35rem auto 0.35rem 0";
+    else if (mode === "right") img.style.margin = "0.35rem 0 0.35rem auto";
+    else img.style.margin = "0.35rem auto";
+    img.style.display = "block";
+  });
+}
+
+function moveSelectedImage(step) {
+  withSelectedImage((img, ed) => {
+    const children = Array.from(ed.children);
+    const idx = children.indexOf(img);
+    if (idx < 0) return;
+    const target = idx + step;
+    if (target < 0 || target >= children.length) return;
+    if (step < 0) ed.insertBefore(img, children[target]);
+    else ed.insertBefore(img, children[target].nextSibling);
+  });
+}
+
+function selectedAttachmentStoragePath() {
+  const href = String(selectedEditorAttachment?.getAttribute?.("href") || "").trim();
+  if (!href) return "";
+  const m = /\/storage\/v1\/object\/public\/pdd-aktualitates-files\/(.+)$/i.exec(href);
+  if (!m) return "";
+  try {
+    return decodeURIComponent(m[1]);
+  } catch {
+    return m[1];
+  }
+}
+
+async function deleteSelectedAttachment() {
+  const ed = currentEditor();
+  if (!ed || !selectedEditorAttachment || !ed.contains(selectedEditorAttachment)) {
+    alert("Vispirms uzklikšķini uz pielikuma saites teksta zonā.");
+    return;
+  }
+  const link = selectedEditorAttachment;
+  const path = selectedAttachmentStoragePath();
+  const sb = globalThis.__PDD_SUPABASE__;
+  const useRemote = Boolean(sodienUiOpts.useSupabase && sb);
+  if (useRemote && path) {
+    const { error } = await sb.storage.from(AKTUALITATES_ATTACHMENTS_BUCKET).remove([path]);
+    if (error) console.warn("[aktualitates.storage.remove.selected]", error.message || error, path);
+  }
+  const p = link.closest("p");
+  if (p && ed.contains(p)) p.remove();
+  else link.remove();
+  selectedEditorAttachment.classList.remove("sodien-selected-attachment");
+  selectedEditorAttachment = null;
+}
+
+function deleteSelectedImage() {
+  withSelectedImage((img) => {
+    img.remove();
+    markSelectedEditorImage(null);
+  });
 }
 
 function onPickAttachment(ev) {
@@ -396,7 +513,7 @@ function onPickAttachment(ev) {
       const src = String(fr.result || "");
       if (!src) return;
       insertAtCursor(
-        `<p>Pielikums: <a href="${escHtml(src)}" target="_blank" rel="noopener noreferrer">${escHtml(f.name)}</a> ` +
+      `<p data-akt-attachment-row="1">Pielikums: <a data-akt-attachment="1" href="${escHtml(src)}" target="_blank" rel="noopener noreferrer">${escHtml(f.name)}</a> ` +
           `(<a href="${escHtml(src)}" download="${escHtml(f.name)}">Lejupielādēt</a>)</p>`,
       );
     };
@@ -425,7 +542,7 @@ function onPickAttachment(ev) {
     const url = pick(pub?.data?.publicUrl || "");
     if (!url) throw new Error("Neizdevās iegūt publisko URL pielikumam.");
     insertAtCursor(
-      `<p>Pielikums: <a href="${escHtml(url)}" target="_blank" rel="noopener noreferrer">${escHtml(f.name)}</a> ` +
+      `<p data-akt-attachment-row="1">Pielikums: <a data-akt-attachment="1" href="${escHtml(url)}" target="_blank" rel="noopener noreferrer">${escHtml(f.name)}</a> ` +
         `(<a href="${escHtml(url)}" download="${escHtml(f.name)}">Lejupielādēt</a>)</p>`,
     );
   };
@@ -568,6 +685,11 @@ function setFormMode(isEdit) {
 function resetAktualitateForm() {
   const ed = currentEditor();
   if (ed) ed.innerHTML = "";
+  markSelectedEditorImage(null);
+  if (selectedEditorAttachment) {
+    selectedEditorAttachment.classList.remove("sodien-selected-attachment");
+    selectedEditorAttachment = null;
+  }
   const editField = currentEditIdField();
   if (editField) editField.value = "";
   const today = ymd(new Date());
@@ -589,6 +711,11 @@ function editAktualitate(id) {
   if (details) details.open = true;
   const ed = currentEditor();
   if (ed) ed.innerHTML = String(item.html || "");
+  markSelectedEditorImage(null);
+  if (selectedEditorAttachment) {
+    selectedEditorAttachment.classList.remove("sodien-selected-attachment");
+    selectedEditorAttachment = null;
+  }
   const editField = currentEditIdField();
   if (editField) editField.value = String(item.id);
   const cb = document.getElementById("sodien-use-period");
@@ -650,6 +777,16 @@ function ensureSodienAktStyleOnce() {
       overflow-x: auto;
       white-space: pre-wrap;
       word-break: break-word;
+    }
+    #sodien-akt-editor img.sodien-selected-img {
+      outline: 2px solid #0284c7;
+      outline-offset: 2px;
+      cursor: move;
+    }
+    #sodien-akt-editor a.sodien-selected-attachment {
+      outline: 2px solid #0284c7;
+      outline-offset: 2px;
+      border-radius: 4px;
     }
   `;
   document.head.appendChild(s);
@@ -819,6 +956,7 @@ function renderTodayInfo({ html, absences, aktualitates, refreshAktualitates, us
           <div
             id="sodien-akt-editor"
             contenteditable="true"
+            onClick=${onEditorClickForImageSelection}
             style=${{
               minHeight: "110px",
               border: "1px solid var(--border)",
@@ -845,6 +983,17 @@ function renderTodayInfo({ html, absences, aktualitates, refreshAktualitates, us
               Pievienot pielikumu
               <input type="file" style=${{ display: "none" }} onChange=${onPickAttachment} />
             </label>
+          </div>
+          <div class="row" style=${{ gap: "0.35rem", flexWrap: "wrap" }}>
+            <button type="button" class="btn btn-ghost btn-small" onClick=${() => resizeSelectedImage(0.8)}>Bilde -</button>
+            <button type="button" class="btn btn-ghost btn-small" onClick=${() => resizeSelectedImage(1.25)}>Bilde +</button>
+            <button type="button" class="btn btn-danger btn-small" onClick=${deleteSelectedImage}>Dzēst bildi</button>
+            <button type="button" class="btn btn-ghost btn-small" onClick=${() => alignSelectedImage("left")}>Pa kreisi</button>
+            <button type="button" class="btn btn-ghost btn-small" onClick=${() => alignSelectedImage("center")}>Centrā</button>
+            <button type="button" class="btn btn-ghost btn-small" onClick=${() => alignSelectedImage("right")}>Pa labi</button>
+            <button type="button" class="btn btn-ghost btn-small" onClick=${() => moveSelectedImage(-1)}>Uz augšu</button>
+            <button type="button" class="btn btn-ghost btn-small" onClick=${() => moveSelectedImage(1)}>Uz leju</button>
+            <button type="button" class="btn btn-danger btn-small" onClick=${() => void deleteSelectedAttachment()}>Dzēst pielikumu</button>
           </div>
 
           <label style=${{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
