@@ -404,7 +404,7 @@
 
       <!-- Lokālie dati + ziņas komandai (bez Supabase/API) -->
       <script src="./Komanda.js?v=20260407"></script>
-      <script src="./Sodien.js?v=2026040909"></script>
+      <script src="./Sodien.js?v=20260409093"></script>
       <script src="./Kalendars.js?v=20260407"></script>
       <script src="./Filtr.js?v=20260407"></script>
       <script src="./Saskaņošana.js?v=20260407"></script>
@@ -5914,9 +5914,11 @@
               globalThis.__PDD_ACTOR_DISPLAY_NAME__ = "";
               globalThis.__PDD_ACTOR_EMAIL__ = "";
               globalThis.__PDD_SESSION_USER_ID__ = "";
+              globalThis.__PDD_ACTOR_ROLE__ = "";
               return;
             }
             globalThis.__PDD_SESSION_USER_ID__ = String(session.user.id ?? "").trim();
+            globalThis.__PDD_ACTOR_ROLE__ = String(profile?.role ?? "").trim().toLowerCase();
             const em = String(profile?.email ?? session.user.email ?? "").trim();
             globalThis.__PDD_ACTOR_EMAIL__ = em;
             let name = "";

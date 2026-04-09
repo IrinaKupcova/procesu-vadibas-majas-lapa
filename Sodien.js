@@ -234,6 +234,18 @@ function rowFromDb(r, nameMap) {
   };
 }
 
+function isCurrentActorAdmin() {
+  return pick(globalThis.__PDD_ACTOR_ROLE__).toLowerCase() === "admin";
+}
+
+function canCurrentActorManageAktualitate(item) {
+  if (!item || typeof item !== "object") return false;
+  if (isCurrentActorAdmin()) return true;
+  const myId = normUserId(globalThis.__PDD_SESSION_USER_ID__);
+  const authorId = normUserId(item?.autors_id);
+  return Boolean(myId && authorId && myId === authorId);
+}
+
 function applyLegacyMatchFilter(q, item) {
   const html = pick(item?.html);
   const start = pick(item?.start);
@@ -914,10 +926,14 @@ function renderTodayInfo({ html, absences, aktualitates, refreshAktualitates, us
                         style=${sodienAktHtmlBox}
                         dangerouslySetInnerHTML=${{ __html: String(x.html || "") }}
                       ></div>
-                      <div class="row" style=${{ marginTop: "0.45rem", flexWrap: "wrap", ...sodienAktFlexibleBox }}>
-                        <button type="button" class="btn btn-ghost btn-small" onClick=${() => editAktualitate(x.id)}>Labot</button>
-                        <button type="button" class="btn btn-danger btn-small" onClick=${() => void deleteAktualitate(x.id)}>Dzēst</button>
-                      </div>
+                      ${canCurrentActorManageAktualitate(x)
+                        ? html`
+                            <div class="row" style=${{ marginTop: "0.45rem", flexWrap: "wrap", ...sodienAktFlexibleBox }}>
+                              <button type="button" class="btn btn-ghost btn-small" onClick=${() => editAktualitate(x.id)}>Labot</button>
+                              <button type="button" class="btn btn-danger btn-small" onClick=${() => void deleteAktualitate(x.id)}>Dzēst</button>
+                            </div>
+                          `
+                        : null}
                     </div>
                   `
                 )}
