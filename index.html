@@ -120,6 +120,40 @@
         }
         .app-title { margin: 0; font-size: 1.35rem; font-weight: 600; }
         .app-sub { margin: 0.25rem 0 0; font-size: 0.9rem; color: var(--muted); }
+        .app-brand {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          min-width: 0;
+        }
+        .app-brand-logo {
+          width: 54px;
+          height: 54px;
+          object-fit: contain;
+          border-radius: 8px;
+          flex: 0 0 auto;
+          background: rgba(255, 255, 255, 0.45);
+          padding: 2px;
+          cursor: zoom-in;
+          transition: transform 0.18s ease, box-shadow 0.18s ease;
+          position: relative;
+          z-index: 2;
+        }
+        .app-brand-logo.is-zoomed {
+          position: fixed;
+          left: 50%;
+          top: 50%;
+          width: min(92vw, 1200px);
+          height: auto;
+          max-height: 90vh;
+          padding: 6px;
+          border-radius: 12px;
+          background: rgba(255, 255, 255, 0.98);
+          box-shadow: 0 16px 44px rgba(15, 23, 42, 0.42);
+          transform: translate(-50%, -50%);
+          cursor: zoom-out;
+          z-index: 120;
+        }
         .card-grid {
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
@@ -5940,9 +5974,17 @@
           const [citsToken, setCitsToken] = useState(() => readCitsTokenFromUrl());
           const title = useMemo(
             () => html`
-              <div>
-                <h1 class="app-title">PDD aplikācija</h1>
-                <p class="app-sub">Pakalpojumu dizaina daļa — darba organizācija</p>
+              <div class="app-brand">
+                <img
+                  src="./public/pdd-logo.png"
+                  alt="PDD logo"
+                  class="app-brand-logo"
+                  onClick=${(e) => e.currentTarget.classList.toggle("is-zoomed")}
+                />
+                <div>
+                  <h1 class="app-title">PDD aplikācija</h1>
+                  <p class="app-sub">Pakalpojumu dizaina daļa — darba organizācija</p>
+                </div>
               </div>
             `,
             []
