@@ -2,6 +2,7 @@ const SODIEN_STORE_KEY = "pdd_sodien_aktualitates_v1";
 
 /** DB tabula (ASCII), kā Supabase kļūdziņā: „AKTUALITATES”. */
 const TABLE_AKTUALITATES = "AKTUALITATES";
+const AKTUALITATES_ATTACHMENTS_BUCKET = "pdd-aktualitates-files";
 
 const AKTUALITATES_NAME_CANDIDATES = [
   "AKTUALITATES",
@@ -241,6 +242,34 @@ function applyLegacyMatchFilter(q, item) {
   return qq;
 }
 
+function extractStorageObjectPathsFromHtml(htmlText) {
+  const html = String(htmlText || "");
+  if (!html) return [];
+  const paths = [];
+  const re = /https?:\/\/[^"'\s]+\/storage\/v1\/object\/public\/pdd-aktualitates-files\/([^"'\s<]+)/gi;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    const rawPath = String(m[1] || "");
+    if (!rawPath) continue;
+    try {
+      paths.push(decodeURIComponent(rawPath));
+    } catch {
+      paths.push(rawPath);
+    }
+  }
+  return [...new Set(paths)];
+}
+
+async function removeStorageAttachmentsForItem(sb, item) {
+  if (!sb || !item) return;
+  const paths = extractStorageObjectPathsFromHtml(item?.html);
+  if (!paths.length) return;
+  const { error } = await sb.storage.from(AKTUALITATES_ATTACHMENTS_BUCKET).remove(paths);
+  if (error) {
+    console.warn("[aktualitates.storage.remove]", error.message || error, paths);
+  }
+}
+
 function visibleAktualitatesActive() {
   const today = ymd(new Date());
   const cleaned = cleanExpired(loadAktualitates());
@@ -311,9 +340,22 @@ function wrapSelectionWithStyle(styleText) {
 
 function insertAtCursor(htmlText) {
   const sel = window.getSelection?.();
-  if (!sel || sel.rangeCount === 0) return;
+  const ed = currentEditor();
+  const htmlValue = String(htmlText || "");
+  if (!ed || !htmlValue) return;
+  if (!sel || sel.rangeCount === 0) {
+    // Ja nav aktīvas atlases, pievienojam redaktora beigās.
+    ed.insertAdjacentHTML("beforeend", htmlValue);
+    return;
+  }
   const r = sel.getRangeAt(0);
-  const frag = r.createContextualFragment(String(htmlText || ""));
+  const inEditor = ed.contains(r.commonAncestorContainer);
+  if (!inEditor) {
+    // Ja atlase ir ārpus redaktora, pievienojam redaktora beigās.
+    ed.insertAdjacentHTML("beforeend", htmlValue);
+    return;
+  }
+  const frag = r.createContextualFragment(htmlValue);
   r.deleteContents();
   r.insertNode(frag);
 }
@@ -345,13 +387,60 @@ function onPickImage(ev) {
 function onPickAttachment(ev) {
   const f = ev?.target?.files?.[0];
   if (!f) return;
-  const fr = new FileReader();
-  fr.onload = () => {
-    const src = String(fr.result || "");
-    if (!src) return;
-    insertAtCursor(`<p><a href="${escHtml(src)}" download="${escHtml(f.name)}">Pielikums: ${escHtml(f.name)}</a></p>`);
+  const sb = globalThis.__PDD_SUPABASE__;
+  const useRemote = Boolean(sodienUiOpts.useSupabase && sb);
+
+  const fallbackToInline = () => {
+    const fr = new FileReader();
+    fr.onload = () => {
+      const src = String(fr.result || "");
+      if (!src) return;
+      insertAtCursor(
+        `<p>Pielikums: <a href="${escHtml(src)}" target="_blank" rel="noopener noreferrer">${escHtml(f.name)}</a> ` +
+          `(<a href="${escHtml(src)}" download="${escHtml(f.name)}">Lejupielādēt</a>)</p>`,
+      );
+    };
+    fr.readAsDataURL(f);
   };
-  fr.readAsDataURL(f);
+
+  const uploadToStorage = async () => {
+    const { data: sess } = await sb.auth.getSession();
+    const uid = pick(sess?.session?.user?.id || "");
+    if (!uid) throw new Error("Nav aktīvas sesijas faila augšupielādei.");
+    const safeFileName = String(f.name || "pielikums")
+      .replace(/[^\w.\-()]/g, "_")
+      .replace(/_+/g, "_")
+      .slice(-120);
+    const suffix = typeof crypto?.randomUUID === "function" ? crypto.randomUUID() : String(Date.now());
+    const objectPath = `${uid}/${Date.now()}-${suffix}-${safeFileName}`;
+    const { error: upErr } = await sb.storage
+      .from(AKTUALITATES_ATTACHMENTS_BUCKET)
+      .upload(objectPath, f, {
+        cacheControl: "3600",
+        upsert: false,
+        contentType: f.type || "application/octet-stream",
+      });
+    if (upErr) throw upErr;
+    const pub = sb.storage.from(AKTUALITATES_ATTACHMENTS_BUCKET).getPublicUrl(objectPath);
+    const url = pick(pub?.data?.publicUrl || "");
+    if (!url) throw new Error("Neizdevās iegūt publisko URL pielikumam.");
+    insertAtCursor(
+      `<p>Pielikums: <a href="${escHtml(url)}" target="_blank" rel="noopener noreferrer">${escHtml(f.name)}</a> ` +
+        `(<a href="${escHtml(url)}" download="${escHtml(f.name)}">Lejupielādēt</a>)</p>`,
+    );
+  };
+
+  if (useRemote) {
+    uploadToStorage().catch((e) => {
+      alert(
+        "Neizdevās augšupielādēt pielikumu uz Supabase Storage: " +
+          (e?.message || String(e)) +
+          ". Pārbaudi bucketu/politikas.",
+      );
+    });
+  } else {
+    fallbackToInline();
+  }
   ev.target.value = "";
 }
 
@@ -443,10 +532,10 @@ async function deleteAktualitate(id) {
   const sb = globalThis.__PDD_SUPABASE__;
   const useRemote = Boolean(sodienUiOpts.useSupabase && sb);
   if (useRemote) {
+    const cur = (sodienUiOpts.__lastAktList || []).find((x) => String(x?.id) === String(id));
     try {
       const t = await resolveAktualitatesTableName(sb);
       if (String(id).startsWith("syn-")) {
-        const cur = (sodienUiOpts.__lastAktList || []).find((x) => String(x?.id) === String(id));
         if (!cur) {
           alert("Neizdevās atrast dzēšamo ierakstu.");
           return;
@@ -458,6 +547,7 @@ async function deleteAktualitate(id) {
         const { error } = await sb.from(t).delete().eq("id", id);
         if (error) throw error;
       }
+      await removeStorageAttachmentsForItem(sb, cur);
     } catch (e) {
       alert("Neizdevās dzēst: " + (e?.message || String(e)));
       return;
