@@ -997,19 +997,24 @@
         /** true: "tikai demo" (nav Supabase). false: Supabase (Realtime sinhronizācija ar DB). */
         const TIKAI_VIENKARSI_SKATS = false;
 
-        // Publisko atslēgu kopē: Supabase → Project Settings → API → anon public (ne service_role).
-        // Ja atslēga „pazuda” pēc rediģēšanas — ielīmē to atkal šeit (viena rinda, sākas ar eyJ…).
+        /*
+         * „Cits” e-pasts: Edge Function `resend-email` jābūt tam pašam Supabase projektam kā FILE_SUPABASE_URL.
+         * Supabase → Edge Functions → Secrets: RESEND_API_KEY, RESEND_FROM (verificēts Resend).
+         * Deploy (datorā ar CLI): supabase login && supabase functions deploy resend-email --no-verify-jwt
+         * Ja izmanto citu projektu nekā šajā failā — nomaini URL + anon/public key (Settings → API).
+         */
+        // Publisko atslēgu kopē: Supabase → Project Settings → API → anon / publishable (ne service_role).
         const FILE_SUPABASE_URL = "https://fdnkvecgqetmwilwolgt.supabase.co";
         const FILE_SUPABASE_ANON_KEY = "sb_publishable_wPrwQc6F0QVlnAubnhamJw_RuxtvtGo";
 
         const LS_URL = "pdd_supabase_url";
         const LS_KEY = "pdd_supabase_anon_key";
 
-        /** Pilna URL uz Resend API (piem. https://xxx.vercel.app/api/pdd-resend). Tukšs = e-pasti netiek sūtīti. */
+        /** Pilna URL uz atsevišķu Resend API (piem. Vercel: …/api/pdd-resend). Tukšs = OK uz GitHub Pages; tad tikai Edge Function. */
         const FILE_PDD_RESEND_API_URL = "";
         const LS_RESEND_API = "pdd_resend_api_url";
-        /** Pilna URL uz Supabase Edge Function sendEmail (ja tukšs, tiek veidots no Supabase URL). */
-        const FILE_PDD_EMAIL_FN_URL = "https://fdnkvecgqetmwilwolgt.supabase.co/functions/v1/sendEmail";
+        /** Pilna URL uz Edge Function (prioritāte: resend-email). Ja tukšs — tiek veidots no FILE_SUPABASE_URL. */
+        const FILE_PDD_EMAIL_FN_URL = "https://fdnkvecgqetmwilwolgt.supabase.co/functions/v1/resend-email";
         const LS_PDD_EMAIL_FN_URL = "pdd_send_pdd_email_fn_url";
         /** Testa SMS numurs "Cits" pieteikuma paziņojumam (E.164 formāts). */
         const FILE_PDD_SMS_NOTIFY_PHONE = "+37125935288";
@@ -1048,7 +1053,7 @@
           const cfg = loadConfig();
           const base = normalizeProjectUrl(cfg.url || "");
           if (!base || !isValidSupabaseProjectUrl(base)) return "";
-          return `${base}/functions/v1/sendEmail`;
+          return `${base}/functions/v1/resend-email`;
         }
 
         function normalizeProjectUrl(url) {
@@ -1114,11 +1119,11 @@
         };
 
         async function callPddResendApi(body) {
-          if (TIKAI_VIENKARSI_SKATS || isLocalMode() || !supabase) return { skipped: true };
+          if (TIKAI_VIENKARSI_SKATS || isLocalMode() || !supabase) return { skipped: true, reason: "local_or_simple_view" };
           const apiUrl = getPddResendApiUrl();
           if (!apiUrl) {
             console.warn("[pdd-resend] Nav API URL — iestatiet FILE_PDD_RESEND_API_URL vai localStorage pdd_resend_api_url");
-            return { skipped: true };
+            return { skipped: true, reason: "no_resend_api_url" };
           }
           const { data } = await supabase.auth.getSession();
           const token = data?.session?.access_token;
@@ -1160,7 +1165,7 @@
         function getEdgeFnCandidateUrls(primaryFnUrl) {
           const p = String(primaryFnUrl || "").trim().replace(/\/+$/, "");
           if (!p) return [];
-          const slugs = ["sendEmail", "resend-email", "send-pdd-email"];
+          const slugs = ["resend-email", "sendEmail", "send-pdd-email"];
           const m = p.match(/^(https:\/\/[^/]+\/functions\/v1)\/([^/]+)$/i);
           if (m) {
             const base = m[1];
@@ -1191,7 +1196,7 @@
           const baseFromFile = normalizeProjectUrl(cfg.url || "");
           const fnUrl =
             (baseFromClient && /^https:\/\/[a-z0-9][a-z0-9-]*\.supabase\.co$/i.test(baseFromClient)
-              ? `${baseFromClient}/functions/v1/sendEmail`
+              ? `${baseFromClient}/functions/v1/resend-email`
               : "") || getSendPddEmailFnUrl();
           if (!fnUrl) return { ok: false, reason: "missing_fn_url", fnUrl: "" };
 
@@ -1266,7 +1271,7 @@
             });
           }
 
-          const invokeNames = ["sendEmail", "resend-email", "send-pdd-email"];
+          const invokeNames = ["resend-email", "sendEmail", "send-pdd-email"];
           for (const fnName of invokeNames) {
             try {
               const { data, error } = await supabase.functions.invoke(fnName, {
@@ -3224,14 +3229,28 @@
                     ? ` (HTTP ${emailResult.status})`
                     : "";
 
-                  const apiErr =
-                    String(
+                  const apiErr = (() => {
+                    const fromBody = String(
                       resendResult?.body?.error ||
                         resendResult?.error?.message ||
                         resendResult?.error ||
-                        resendResult?.reason ||
-                        ""
-                    ).trim() || (resendResult?.skipped ? "API nav konfigurēts" : "Nezināma kļūda");
+                        "",
+                    ).trim();
+                    if (fromBody) return fromBody;
+                    const r = String(resendResult?.reason || "").trim();
+                    if (resendResult?.skipped && r === "no_resend_api_url") {
+                      return (
+                        "nav ieslēgts (tikai papildu ceļš uz Vercel u.tml.; GitHub Pages to nelieto). " +
+                        "Galvenā e-pasta sūtīšana ir caur Supabase Edge Function — salabo to (Secrets, deploy, projekta URL atbilstība)."
+                      );
+                    }
+                    if (resendResult?.skipped && r === "no_session") {
+                      return "nav izsaukts — nav sesijas JWT Resend API pieprasījumam.";
+                    }
+                    if (resendResult?.skipped && r === "edge_ok") return "";
+                    if (resendResult?.skipped) return "netika izmantots (skat. iemeslu augšā Edge daļā).";
+                    return "Nezināma kļūda";
+                  })();
                   const apiStatus = Number.isFinite(Number(resendResult?.status))
                     ? ` (HTTP ${resendResult.status})`
                     : "";
