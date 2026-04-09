@@ -1,5 +1,63 @@
 const SODIEN_STORE_KEY = "pdd_sodien_aktualitates_v1";
 
+/** DB tabula (ASCII), kā Supabase kļūdziņā: „AKTUALITATES”. */
+const TABLE_AKTUALITATES = "AKTUALITATES";
+
+const AKTUALITATES_NAME_CANDIDATES = [
+  "AKTUALITATES",
+  "aktualitates",
+  "Aktualitates",
+  "AKTUALIT\u0100TES",
+];
+
+/** PostgREST embed: FK nosaukums = {tabulas_relname}_Autors_fkey (PostgreSQL). */
+function aktualitatesUserEmbed(tableResolved) {
+  const rel = String(tableResolved || "AKTUALITATES");
+  return `users!${rel}_Autors_fkey (
+  id,
+  email,
+  full_name,
+  "Vārds uzvārds"
+)`;
+}
+
+let resolvedAktualitatesTableName = null;
+
+/**
+ * Atrod tabulas nosaukumu PostgREST kešatmiņā (mēģina vairākus variantus).
+ * Rezultāts tiek saglabāts `globalThis.__PDD_AKTUALITATES_TABLE__` (Realtime).
+ */
+async function resolveAktualitatesTableName(sb) {
+  if (resolvedAktualitatesTableName) return resolvedAktualitatesTableName;
+  if (!sb) throw new Error("Nav Supabase klienta");
+  let lastErr = null;
+  for (const t of AKTUALITATES_NAME_CANDIDATES) {
+    const { error } = await sb.from(t).select("*").limit(1);
+    if (!error) {
+      resolvedAktualitatesTableName = t;
+      if (typeof globalThis !== "undefined") globalThis.__PDD_AKTUALITATES_TABLE__ = t;
+      return t;
+    }
+    lastErr = error;
+  }
+  throw new Error(
+    "Aktualitāšu tabula nav atrasta. Pārbaudi Table Editor: public → AKTUALITATES (Kas_sodien_vel_aktuals, Sakums, Beigas, Autors). Ja tabula jauna — uzgaidi ~1 min. Kļūda: " +
+      (lastErr?.message || "nezināma")
+  );
+}
+
+/** Ielādē tabulas nosaukumu pirms Realtime abonementa. */
+async function primeAktualitatesTable(sb) {
+  if (!sb) return;
+  await resolveAktualitatesTableName(sb);
+}
+
+/** Pēdējās renderTodayInfo opcijas (add/delete izmanto attālināti). */
+let sodienUiOpts = {
+  useSupabase: false,
+  refreshAktualitates: null,
+};
+
 function ymd(d) {
   const dt = d instanceof Date ? d : new Date(d);
   return Number.isNaN(dt.getTime()) ? "" : dt.toISOString().slice(0, 10);
@@ -85,6 +143,121 @@ function cleanExpired(list) {
   });
 }
 
+function stableSyntheticRowId(html, start, end, autorsOrTag) {
+  const s = `${start}|${end}|${autorsOrTag}|${String(html).slice(0, 160)}`;
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+  return `syn-${Math.abs(h)}`;
+}
+
+function authorLabelFromDbRow(r) {
+  const emb = r?.users;
+  if (emb && typeof emb === "object" && !Array.isArray(emb)) {
+    const n = pick(emb["Vārds uzvārds"] || emb.full_name || emb.email);
+    if (n) return n;
+  }
+  if (Array.isArray(emb) && emb[0]) {
+    const u0 = emb[0];
+    const n = pick(u0["Vārds uzvārds"] || u0.full_name || u0.email);
+    if (n) return n;
+  }
+  const aid = pick(r?.Autors ?? r?.autors);
+  return aid ? `${aid.slice(0, 8)}…` : "—";
+}
+
+function rowFromDb(r) {
+  if (!r || typeof r !== "object") return null;
+  const html = pick(r.Kas_sodien_vel_aktuals ?? r.kas_sodien_vel_aktuals);
+  const start = pick(r.Sakums ?? r.sakums);
+  const end = pick(r.Beigas ?? r.beigas);
+  const created_at = pick(r.created_at);
+  const autors_id = pick(r.Autors ?? r.autors);
+  if (!html || !start || !end) return null;
+  const dbRowId = pick(r.id);
+  const use_period = start !== end;
+  const authorLabel = authorLabelFromDbRow(r);
+  const id = dbRowId || stableSyntheticRowId(html, start, end, autors_id || authorLabel);
+  return {
+    id,
+    dbRowId: dbRowId || null,
+    canMutateRemote: Boolean(dbRowId),
+    html,
+    start,
+    end,
+    use_period,
+    created_at,
+    autors_id,
+    authorLabel,
+  };
+}
+
+function visibleAktualitatesActive() {
+  const today = ymd(new Date());
+  const cleaned = cleanExpired(loadAktualitates());
+  saveAktualitates(cleaned);
+  return cleaned.filter((x) => {
+    const e = pick(x.end || "");
+    return !e || e >= today;
+  });
+}
+
+/**
+ * Aktuālās aktualitātes pēc perioda (šodien iekļauts [Sakums, Beigas]).
+ * @param {import('@supabase/supabase-js').SupabaseClient} sb
+ */
+async function fetchActiveAktualitatesFromSupabase(sb) {
+  const t = await resolveAktualitatesTableName(sb);
+  const today = ymd(new Date());
+  const embed = aktualitatesUserEmbed(t);
+  let { data, error } = await sb
+    .from(t)
+    .select(`*, ${embed}`)
+    .lte("Sakums", today)
+    .gte("Beigas", today)
+    .order("Sakums", { ascending: false })
+    .order("Beigas", { ascending: false });
+  if (error) {
+    const r2 = await sb
+      .from(t)
+      .select("*")
+      .lte("Sakums", today)
+      .gte("Beigas", today)
+      .order("Sakums", { ascending: false })
+      .order("Beigas", { ascending: false });
+    data = r2.data;
+    error = r2.error;
+  }
+  if (error) throw error;
+  return (data ?? []).map(rowFromDb).filter(Boolean);
+}
+
+/**
+ * Visa vēsture (ieskaitot beigušās).
+ * @param {import('@supabase/supabase-js').SupabaseClient} sb
+ */
+async function fetchAllAktualitatesFromSupabase(sb) {
+  const t = await resolveAktualitatesTableName(sb);
+  const embed = aktualitatesUserEmbed(t);
+  let { data, error } = await sb
+    .from(t)
+    .select(`*, ${embed}`)
+    .order("Sakums", { ascending: false })
+    .order("Beigas", { ascending: false })
+    .limit(500);
+  if (error) {
+    const r2 = await sb
+      .from(t)
+      .select("*")
+      .order("Sakums", { ascending: false })
+      .order("Beigas", { ascending: false })
+      .limit(500);
+    data = r2.data;
+    error = r2.error;
+  }
+  if (error) throw error;
+  return (data ?? []).map(rowFromDb).filter(Boolean);
+}
+
 function currentEditor() {
   return document.getElementById("sodien-akt-editor");
 }
@@ -153,7 +326,7 @@ function onPickAttachment(ev) {
   ev.target.value = "";
 }
 
-function addAktualitate() {
+async function addAktualitate() {
   const ed = currentEditor();
   if (!ed) return;
   const content = String(ed.innerHTML || "").trim();
@@ -164,13 +337,51 @@ function addAktualitate() {
   const usePeriod = Boolean(document.getElementById("sodien-use-period")?.checked);
   const today = ymd(new Date());
   const start = usePeriod ? pick(document.getElementById("sodien-start")?.value || today) : today;
-  const end = usePeriod ? pick(document.getElementById("sodien-end")?.value || start || today) : (start || today);
+  const end = usePeriod ? pick(document.getElementById("sodien-end")?.value || start || today) : start || today;
   if (start && end && end < start) {
     alert("Perioda beigu datums nevar būt mazāks par sākuma datumu.");
     return;
   }
-  const list = cleanExpired(loadAktualitates());
   const editId = pick(currentEditIdField()?.value || "");
+  const sb = globalThis.__PDD_SUPABASE__;
+  const useRemote = Boolean(sodienUiOpts.useSupabase && sb);
+
+  if (useRemote) {
+    const payload = {
+      Kas_sodien_vel_aktuals: content,
+      Sakums: start || today,
+      Beigas: end || start || today,
+    };
+    try {
+      const t = await resolveAktualitatesTableName(sb);
+      if (editId) {
+        if (String(editId).startsWith("syn-")) {
+          alert("Šim ierakstam nav datubāzes id — labošana nav pieejama. Pievienojiet tabulai id (uuid) kolonnu.");
+          return;
+        }
+        const { error } = await sb.from(t).update(payload).eq("id", editId);
+        if (error) throw error;
+      } else {
+        const { data: sess } = await sb.auth.getSession();
+        const uid = sess?.session?.user?.id;
+        if (!uid) {
+          alert("Nav pieslēgta lietotāja sesijas — nevar saglabāt (vajag auth.uid() RLS politikai).");
+          return;
+        }
+        const { error } = await sb.from(t).insert({ ...payload, Autors: uid });
+        if (error) throw error;
+      }
+    } catch (e) {
+      alert("Neizdevās saglabāt Supabase: " + (e?.message || String(e)));
+      return;
+    }
+    resetAktualitateForm();
+    if (typeof sodienUiOpts.refreshAktualitates === "function") await sodienUiOpts.refreshAktualitates();
+    return;
+  }
+
+  const list = cleanExpired(loadAktualitates());
+  const authorLabel = pick(globalThis.__PDD_ACTOR_DISPLAY_NAME__) || "Lokāli";
   const row = {
     id: editId || crypto.randomUUID(),
     html: content,
@@ -178,6 +389,7 @@ function addAktualitate() {
     end: end || start || today,
     use_period: usePeriod,
     created_at: new Date().toISOString(),
+    authorLabel,
   };
   if (editId) {
     const idx = list.findIndex((x) => String(x.id) === editId);
@@ -190,7 +402,26 @@ function addAktualitate() {
   window.location.reload();
 }
 
-function deleteAktualitate(id) {
+async function deleteAktualitate(id) {
+  if (!confirm("Dzēst šo aktualitāti?")) return;
+  const sb = globalThis.__PDD_SUPABASE__;
+  const useRemote = Boolean(sodienUiOpts.useSupabase && sb);
+  if (useRemote) {
+    if (String(id).startsWith("syn-")) {
+      alert("Šim ierakstam nav datubāzes id — dzēšanai tabulā vajag id (uuid) kolonnu.");
+      return;
+    }
+    try {
+      const t = await resolveAktualitatesTableName(sb);
+      const { error } = await sb.from(t).delete().eq("id", id);
+      if (error) throw error;
+    } catch (e) {
+      alert("Neizdevās dzēst: " + (e?.message || String(e)));
+      return;
+    }
+    if (typeof sodienUiOpts.refreshAktualitates === "function") await sodienUiOpts.refreshAktualitates();
+    return;
+  }
   const list = cleanExpired(loadAktualitates()).filter((x) => String(x.id) !== String(id));
   saveAktualitates(list);
   window.location.reload();
@@ -217,7 +448,9 @@ function resetAktualitateForm() {
 }
 
 function editAktualitate(id) {
-  const item = cleanExpired(loadAktualitates()).find((x) => String(x.id) === String(id));
+  const useRemote = Boolean(sodienUiOpts.useSupabase && globalThis.__PDD_SUPABASE__);
+  const list = useRemote ? sodienUiOpts.__lastAktList || [] : cleanExpired(loadAktualitates());
+  const item = list.find((x) => String(x.id) === String(id));
   if (!item) return;
   const details = document.getElementById("sodien-editor-details");
   if (details) details.open = true;
@@ -234,31 +467,82 @@ function editAktualitate(id) {
   setFormMode(true);
 }
 
-function visibleAktualitatesActive() {
-  const today = ymd(new Date());
-  const cleaned = cleanExpired(loadAktualitates());
-  saveAktualitates(cleaned);
-  return cleaned.filter((x) => {
-    const e = pick(x.end || "");
-    return !e || e >= today;
-  });
+function ensureSodienAktStyleOnce() {
+  if (typeof document === "undefined" || document.getElementById("pdd-sodien-akt-style")) return;
+  const s = document.createElement("style");
+  s.id = "pdd-sodien-akt-style";
+  s.textContent = `
+    #sodien-aktualitates-panel .sodien-akt-html img,
+    #sodien-aktualitates-panel .sodien-akt-html svg,
+    #sodien-aktualitates-panel .sodien-akt-html video {
+      max-width: 100% !important;
+      height: auto !important;
+    }
+    #sodien-aktualitates-panel .sodien-akt-html table {
+      max-width: 100%;
+      display: block;
+      overflow-x: auto;
+    }
+    #sodien-aktualitates-panel .sodien-akt-html pre {
+      max-width: 100%;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+  `;
+  document.head.appendChild(s);
 }
 
-function renderTodayInfo({ html, absences }) {
+const sodienAktFlexibleBox = {
+  boxSizing: "border-box",
+  minWidth: 0,
+  maxWidth: "100%",
+  width: "100%",
+};
+
+const sodienAktHtmlBox = {
+  ...sodienAktFlexibleBox,
+  fontSize: "0.92rem",
+  overflowWrap: "anywhere",
+  wordBreak: "break-word",
+  overflowX: "auto",
+};
+
+function renderTodayInfo({ html, absences, aktualitates, refreshAktualitates, useSupabase, syncError, loadingAktualitates }) {
   if (typeof html !== "function") return null;
+  ensureSodienAktStyleOnce();
+  sodienUiOpts = {
+    useSupabase: Boolean(useSupabase),
+    refreshAktualitates: typeof refreshAktualitates === "function" ? refreshAktualitates : null,
+    __lastAktList: Array.isArray(aktualitates) ? aktualitates : [],
+  };
   const awayRows = todayRows(absences);
-  const aktualitates = visibleAktualitatesActive();
+  const aktList =
+    loadingAktualitates && aktualitates === undefined
+      ? null
+      : Array.isArray(aktualitates)
+        ? aktualitates
+        : visibleAktualitatesActive();
   const today = ymd(new Date());
   return html`
     <section
+      id="sodien-aktualitates-panel"
       class="list-panel"
       style=${{
         marginTop: "1rem",
         background: "linear-gradient(180deg, rgba(56,189,248,0.16), rgba(14,116,144,0.1))",
         border: "1px solid rgba(14,116,144,0.55)",
+        boxSizing: "border-box",
+        minWidth: 0,
+        maxWidth: "100%",
+        width: "100%",
       }}
     >
       <h3 style=${{ margin: "0 0 0.75rem", fontSize: "1rem", color: "#075985" }}>AKTUALITĀTES</h3>
+
+      ${syncError
+        ? html`<div class="banner-warn" role="alert" style=${{ marginBottom: "0.75rem", fontSize: "0.88rem" }}>Aktualitāšu sinhronizācija: ${String(syncError)}</div>`
+        : null}
 
       <div style=${{ fontWeight: 700, borderBottom: "1px solid rgba(14,116,144,0.35)", paddingBottom: "0.35rem", marginBottom: "0.55rem" }}>
         Šodien nav darbā
@@ -299,30 +583,48 @@ function renderTodayInfo({ html, absences }) {
       <div style=${{ fontWeight: 700, borderBottom: "1px solid rgba(14,116,144,0.35)", paddingBottom: "0.35rem", marginBottom: "0.55rem" }}>
         Kas šodien vēl aktuāls
       </div>
-      ${aktualitates.length
-        ? html`
-            <div class="stack" style=${{ gap: "0.5rem", marginBottom: "0.75rem" }}>
-              ${aktualitates.map(
-                (x) => html`
-                  <div key=${x.id} style=${{ border: "1px dashed rgba(2,132,199,0.55)", borderRadius: "10px", padding: "0.55rem 0.65rem", background: "rgba(255,255,255,0.8)" }}>
-                    ${x.use_period
-                      ? html`
-                          <div style=${{ fontSize: "0.8rem", color: "var(--muted)", marginBottom: "0.3rem" }}>
-                            Periods: ${formatLvDate(x.start)} — ${formatLvDate(x.end)}
-                          </div>
-                        `
-                      : null}
-                    <div style=${{ fontSize: "0.92rem" }} dangerouslySetInnerHTML=${{ __html: String(x.html || "") }}></div>
-                    <div class="row" style=${{ marginTop: "0.45rem" }}>
-                      <button type="button" class="btn btn-ghost btn-small" onClick=${() => editAktualitate(x.id)}>Labot</button>
-                      <button type="button" class="btn btn-danger btn-small" onClick=${() => deleteAktualitate(x.id)}>Dzēst</button>
+      ${aktList === null
+        ? html`<p style=${{ margin: "0 0 0.75rem", color: "var(--muted)" }}>Ielādē aktualitātes…</p>`
+        : aktList.length
+          ? html`
+              <div class="stack" style=${{ gap: "0.5rem", marginBottom: "0.75rem", ...sodienAktFlexibleBox }}>
+                ${aktList.map(
+                  (x) => html`
+                    <div
+                      key=${x.id}
+                      style=${{
+                        border: "1px dashed rgba(2,132,199,0.55)",
+                        borderRadius: "10px",
+                        padding: "0.55rem 0.65rem",
+                        background: "rgba(255,255,255,0.8)",
+                        ...sodienAktFlexibleBox,
+                      }}
+                    >
+                      ${x.use_period
+                        ? html`
+                            <div style=${{ fontSize: "0.8rem", color: "var(--muted)", marginBottom: "0.3rem", ...sodienAktFlexibleBox }}>
+                              Periods: ${formatLvDate(x.start)} — ${formatLvDate(x.end)}
+                            </div>
+                          `
+                        : null}
+                      <div style=${{ fontSize: "0.82rem", color: "var(--muted)", marginBottom: "0.3rem", ...sodienAktFlexibleBox }}>
+                        Autors: ${pick(x.authorLabel) || "—"}
+                      </div>
+                      <div
+                        class="sodien-akt-html"
+                        style=${sodienAktHtmlBox}
+                        dangerouslySetInnerHTML=${{ __html: String(x.html || "") }}
+                      ></div>
+                      <div class="row" style=${{ marginTop: "0.45rem", flexWrap: "wrap", ...sodienAktFlexibleBox }}>
+                        <button type="button" class="btn btn-ghost btn-small" onClick=${() => editAktualitate(x.id)}>Labot</button>
+                        <button type="button" class="btn btn-danger btn-small" onClick=${() => void deleteAktualitate(x.id)}>Dzēst</button>
+                      </div>
                     </div>
-                  </div>
-                `
-              )}
-            </div>
-          `
-        : html`<p style=${{ margin: "0 0 0.75rem", color: "var(--muted)" }}>Papildu aktualitātes nav pievienotas.</p>`}
+                  `
+                )}
+              </div>
+            `
+          : html`<p style=${{ margin: "0 0 0.75rem", color: "var(--muted)" }}>Papildu aktualitātes nav pievienotas.</p>`}
 
       <details id="sodien-editor-details">
         <summary style=${{ cursor: "pointer", fontWeight: 600 }}>Pievienot</summary>
@@ -361,6 +663,13 @@ function renderTodayInfo({ html, absences }) {
               borderRadius: "8px",
               background: "rgba(255,255,255,0.9)",
               padding: "0.55rem",
+              boxSizing: "border-box",
+              minWidth: 0,
+              maxWidth: "100%",
+              width: "100%",
+              overflowWrap: "anywhere",
+              wordBreak: "break-word",
+              overflowX: "auto",
             }}
             data-placeholder="Aktualitāte — brīvais teksts"
           ></div>
@@ -392,7 +701,7 @@ function renderTodayInfo({ html, absences }) {
           </div>
 
           <div class="row">
-            <button id="sodien-submit-btn" type="button" class="btn btn-primary btn-small" onClick=${addAktualitate}>Pievienot</button>
+            <button id="sodien-submit-btn" type="button" class="btn btn-primary btn-small" onClick=${() => void addAktualitate()}>Pievienot</button>
             <button type="button" class="btn btn-ghost btn-small" onClick=${resetAktualitateForm}>Atcelt</button>
           </div>
         </div>
@@ -403,4 +712,10 @@ function renderTodayInfo({ html, absences }) {
 
 window.PDDSodien = {
   renderTodayInfo,
+  loadAktualitates,
+  visibleAktualitatesActive,
+  fetchActiveAktualitatesFromSupabase,
+  fetchAllAktualitatesFromSupabase,
+  primeAktualitatesTable,
+  TABLE_AKTUALITATES,
 };

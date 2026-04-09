@@ -404,7 +404,7 @@
 
       <!-- Lokālie dati + ziņas komandai (bez Supabase/API) -->
       <script src="./Komanda.js?v=20260407"></script>
-      <script src="./Sodien.js?v=20260408"></script>
+      <script src="./Sodien.js?v=2026040822"></script>
       <script src="./Kalendars.js?v=20260407"></script>
       <script src="./Filtr.js?v=20260407"></script>
       <script src="./Saskaņošana.js?v=20260407"></script>
@@ -1063,6 +1063,7 @@
         const supabase = configured()
           ? createClient(normalizeProjectUrl(__cfg.url), String(__cfg.key).trim().replace(/\s+/g, ""))
           : null;
+        window.__PDD_SUPABASE__ = supabase;
         let ensureAuthPromise = null;
 
         // Debug palīgs: pārbaudīt pārlūkā, vai ir sesija un kāds ir uid.
@@ -1112,23 +1113,49 @@
 
         function isSendPddEmailResponseOk(body, httpOk) {
           if (!httpOk) return false;
-          if (!body || typeof body !== "object") return true;
-          if (body.error) return false;
-          if (body.success === false) return false;
-          return body.success === true || body.success === undefined;
+          if (!body || typeof body !== "object") return false;
+          if (body.error || body.message === "Edge Function returned a non-2xx status code") return false;
+          return body.success === true;
+        }
+
+        async function getAccessTokenForFunctions() {
+          await ensureDbReadableSession();
+          let { data: sess } = await supabase.auth.getSession();
+          let t = String(sess?.session?.access_token || "").trim();
+          if (t && t.startsWith("eyJ")) return t;
+          const { error: a1 } = await supabase.auth.signInAnonymously();
+          if (a1) console.warn("[auth.anon email]", a1);
+          sess = (await supabase.auth.getSession()).data;
+          t = String(sess?.session?.access_token || "").trim();
+          if (t && t.startsWith("eyJ")) return t;
+          return "";
         }
 
         async function callSendPddEmail({ name, veids }) {
           if (TIKAI_VIENKARSI_SKATS || isLocalMode() || !supabase) return { skipped: true };
-          await ensureDbReadableSession();
-          const fnUrl = getSendPddEmailFnUrl();
-          if (!fnUrl) return { ok: false, reason: "missing_fn_url", fnUrl: "" };
           const cfg = loadConfig();
           const apiKey = String(cfg.key || "").trim();
-          if (!apiKey) return { ok: false, reason: "missing_anon_key", fnUrl };
-          const { data: sess } = await supabase.auth.getSession();
-          const accessToken = String(sess?.session?.access_token || "").trim();
-          const bearer = accessToken || apiKey;
+          if (!apiKey) return { ok: false, reason: "missing_anon_key", fnUrl: "" };
+          const baseFromClient = String(supabase?.supabaseUrl || "").replace(/\/+$/, "");
+          const baseFromFile = normalizeProjectUrl(cfg.url || "");
+          const fnUrl =
+            (baseFromClient && /^https:\/\/[a-z0-9][a-z0-9-]*\.supabase\.co$/i.test(baseFromClient)
+              ? `${baseFromClient}/functions/v1/send-pdd-email`
+              : "") || getSendPddEmailFnUrl();
+          if (!fnUrl) return { ok: false, reason: "missing_fn_url", fnUrl: "" };
+
+          const accessToken = await getAccessTokenForFunctions();
+          if (!accessToken) {
+            return {
+              ok: false,
+              reason: "no_jwt",
+              fnUrl,
+              body: {
+                error:
+                  "Nav derīga sesijas žetona (JWT). Supabase → Authentication → Providers → ieslēdz „Anonymous sign-ins”, vai lapā lieto klasisko anon atslēgu eyJ….",
+              },
+            };
+          }
 
           async function tryFetch() {
             const r = await fetch(fnUrl, {
@@ -1136,7 +1163,7 @@
               headers: {
                 "Content-Type": "application/json",
                 apikey: apiKey,
-                Authorization: "Bearer " + bearer,
+                Authorization: "Bearer " + accessToken,
               },
               body: JSON.stringify({ name, veids }),
             });
@@ -1145,7 +1172,7 @@
             try {
               j = txt ? JSON.parse(txt) : null;
             } catch {
-              j = { raw: txt };
+              j = { parse_error: true, raw: txt };
             }
             if (isSendPddEmailResponseOk(j, r.ok)) {
               return { ok: true, status: r.status, body: j, fnUrl };
@@ -2188,6 +2215,13 @@
                         `
                       : null}
                   </div>
+                  <button
+                    type="button"
+                    class=${`app-nav-link ${view === "aktualitatesHistory" ? "active" : ""}`}
+                    onClick=${() => onChangeView("aktualitatesHistory")}
+                  >
+                    Aktualitāšu vēsture
+                  </button>
                 </div>
               </aside>
               <div class="app-main">
@@ -2198,14 +2232,211 @@
           `;
         }
 
-        function Dashboard({ onOpenPrombutnes, absencesToday }) {
-          const sodienBlock = (() => {
+        function AktualitatesVestureView() {
+          const [rows, setRows] = useState(undefined);
+          const [err, setErr] = useState(null);
+          const refresh = useCallback(async () => {
+            const V = globalThis.PDDSodien;
+            const sb = globalThis.__PDD_SUPABASE__;
+            if (!V?.fetchAllAktualitatesFromSupabase || !sb || TIKAI_VIENKARSI_SKATS || isLocalMode()) {
+              const raw = Array.isArray(V?.loadAktualitates?.()) ? V.loadAktualitates() : [];
+              const sorted = [...raw].sort((a, b) =>
+                String(b?.created_at ?? "").localeCompare(String(a?.created_at ?? ""))
+              );
+              setRows(sorted);
+              setErr(null);
+              return;
+            }
             try {
-              return globalThis.PDDSodien?.renderTodayInfo?.({ html, absences: absencesToday ?? [] }) ?? null;
+              await ensureDbReadableSession();
+              const list = await V.fetchAllAktualitatesFromSupabase(sb);
+              setRows(list);
+              setErr(null);
+            } catch (e) {
+              setErr(e?.message || String(e));
+              setRows([]);
+            }
+          }, []);
+          useEffect(() => {
+            void refresh();
+          }, [refresh]);
+          useEffect(() => {
+            const sb = globalThis.__PDD_SUPABASE__;
+            if (!sb || isLocalMode() || TIKAI_VIENKARSI_SKATS) return undefined;
+            let ch = null;
+            let cancelled = false;
+            (async () => {
+              try {
+                const V = globalThis.PDDSodien;
+                if (V?.primeAktualitatesTable) await V.primeAktualitatesTable(sb);
+                if (cancelled) return;
+                const tbl = globalThis.__PDD_AKTUALITATES_TABLE__;
+                if (!tbl) return;
+                ch = sb
+                  .channel("pdd-aktualitates-history")
+                  .on("postgres_changes", { event: "*", schema: "public", table: tbl }, () => void refresh())
+                  .subscribe((status, er) => {
+                    if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+                      console.warn("[PDD Aktualitātes Realtime]", status, er?.message ?? er);
+                    }
+                  });
+              } catch (e) {
+                console.warn("[PDD Aktualitātes Realtime]", e);
+              }
+            })();
+            return () => {
+              cancelled = true;
+              if (ch) void sb.removeChannel(ch);
+            };
+          }, [refresh]);
+          const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
+          function formatLvDate(iso) {
+            const s = String(iso || "").trim();
+            const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+            if (!m) return s;
+            return `${m[3]}.${m[2]}.${m[1]}`;
+          }
+          return html`
+            <section class="stack" style=${{ gap: "1rem" }}>
+              <div>
+                <h2 style=${{ margin: 0, fontSize: "1.15rem" }}>Aktualitāšu vēsture</h2>
+                <p class="app-sub" style=${{ margin: "0.25rem 0 0" }}>
+                  Visi saglabātie ieraksti (tabula ${globalThis.__PDD_AKTUALITATES_TABLE__ || globalThis.PDDSodien?.TABLE_AKTUALITATES || "AKTUALITATES"}), ieskaitot beigušos periodus.
+                </p>
+              </div>
+              ${err ? html`<div class="banner-warn" role="alert">Kļūda: ${err}</div>` : null}
+              ${rows === undefined
+                ? html`<p style=${{ color: "var(--muted)" }}>Ielādē…</p>`
+                : rows.length === 0
+                  ? html`<p style=${{ color: "var(--muted)" }}>Vēl nav ierakstu.</p>`
+                  : html`
+                      <div class="stack" style=${{ gap: "0.65rem" }}>
+                        ${rows.map((x) => {
+                          const active = !x.end || x.end >= todayIso;
+                          return html`
+                            <article
+                              key=${x.id}
+                              style=${{
+                                border: "1px solid var(--border)",
+                                borderRadius: "10px",
+                                padding: "0.75rem",
+                                background: active ? "rgba(255,255,255,0.85)" : "rgba(248,250,252,0.92)",
+                                opacity: active ? 1 : 0.92,
+                              }}
+                            >
+                              <div
+                                class="row"
+                                style=${{
+                                  justifyContent: "space-between",
+                                  flexWrap: "wrap",
+                                  gap: "0.35rem",
+                                  marginBottom: "0.4rem",
+                                }}
+                              >
+                                <span style=${{ fontSize: "0.82rem", color: "var(--muted)" }}>
+                                  ${formatLvDate(x.start)} — ${formatLvDate(x.end)}
+                                </span>
+                                ${active
+                                  ? html`<span style=${{ fontSize: "0.75rem", fontWeight: 600, color: "#047857" }}>Aktīvs</span>`
+                                  : html`<span style=${{ fontSize: "0.75rem", color: "var(--muted)" }}>Periods beidzies</span>`}
+                              </div>
+                              <div style=${{ fontSize: "0.82rem", color: "var(--muted)", marginBottom: "0.35rem" }}>
+                                Autors: ${String(x.authorLabel || "—").trim()}
+                              </div>
+                              <div
+                                class="akt-vesture-html"
+                                style=${{ fontSize: "0.92rem" }}
+                                dangerouslySetInnerHTML=${{ __html: String(x.html || "") }}
+                              ></div>
+                            </article>
+                          `;
+                        })}
+                      </div>
+                    `}
+            </section>
+          `;
+        }
+
+        function Dashboard({ onOpenPrombutnes, absencesToday }) {
+          const [sodienRows, setSodienRows] = useState(() => {
+            try {
+              if (TIKAI_VIENKARSI_SKATS || isLocalMode() || !configured() || !globalThis.__PDD_SUPABASE__) {
+                return globalThis.PDDSodien?.visibleAktualitatesActive?.() ?? [];
+              }
+            } catch {
+              /* ignore */
+            }
+            return undefined;
+          });
+          const [sodienErr, setSodienErr] = useState(null);
+          const refreshSodienAktualitates = useCallback(async () => {
+            const V = globalThis.PDDSodien;
+            const sb = globalThis.__PDD_SUPABASE__;
+            if (!V?.fetchActiveAktualitatesFromSupabase || !sb || TIKAI_VIENKARSI_SKATS || isLocalMode()) {
+              setSodienRows(V?.visibleAktualitatesActive?.() ?? []);
+              setSodienErr(null);
+              return;
+            }
+            try {
+              await ensureDbReadableSession();
+              const list = await V.fetchActiveAktualitatesFromSupabase(sb);
+              setSodienRows(list);
+              setSodienErr(null);
+            } catch (e) {
+              setSodienErr(e?.message || String(e));
+              setSodienRows(V?.visibleAktualitatesActive?.() ?? []);
+            }
+          }, []);
+          useEffect(() => {
+            if (TIKAI_VIENKARSI_SKATS || isLocalMode() || !globalThis.__PDD_SUPABASE__) return;
+            void refreshSodienAktualitates();
+          }, [refreshSodienAktualitates]);
+          useEffect(() => {
+            const sb = globalThis.__PDD_SUPABASE__;
+            if (!sb || isLocalMode() || TIKAI_VIENKARSI_SKATS) return undefined;
+            let ch = null;
+            let cancelled = false;
+            (async () => {
+              try {
+                const V = globalThis.PDDSodien;
+                if (V?.primeAktualitatesTable) await V.primeAktualitatesTable(sb);
+                if (cancelled) return;
+                const tbl = globalThis.__PDD_AKTUALITATES_TABLE__;
+                if (!tbl) return;
+                ch = sb
+                  .channel("pdd-aktualitates-dashboard")
+                  .on("postgres_changes", { event: "*", schema: "public", table: tbl }, () => void refreshSodienAktualitates())
+                  .subscribe((status, er) => {
+                    if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+                      console.warn("[PDD Aktualitātes Realtime]", status, er?.message ?? er);
+                    }
+                  });
+              } catch (e) {
+                console.warn("[PDD Aktualitātes Realtime]", e);
+              }
+            })();
+            return () => {
+              cancelled = true;
+              if (ch) void sb.removeChannel(ch);
+            };
+          }, [refreshSodienAktualitates]);
+          const sodienBlock = useMemo(() => {
+            try {
+              return (
+                globalThis.PDDSodien?.renderTodayInfo?.({
+                  html,
+                  absences: absencesToday ?? [],
+                  aktualitates: sodienRows,
+                  refreshAktualitates: refreshSodienAktualitates,
+                  useSupabase: Boolean(globalThis.__PDD_SUPABASE__) && !TIKAI_VIENKARSI_SKATS && !isLocalMode(),
+                  syncError: sodienErr,
+                  loadingAktualitates: sodienRows === undefined,
+                }) ?? null
+              );
             } catch {
               return null;
             }
-          })();
+          }, [absencesToday, sodienRows, sodienErr, refreshSodienAktualitates]);
           return html`
             <section aria-labelledby="dashboard-title">
               <h2 id="dashboard-title" class="app-sub" style=${{ marginBottom: "1rem", fontSize: "1rem" }}>
@@ -5864,27 +6095,29 @@
                     }}
                     absencesToday=${homeAbsencesSnapshot}
                   />`
-                : view === "team"
-                  ? html`<${PrombutnesSection}
-                      userId=${effectiveUserId}
-                      role=${profile?.role ?? "user"}
-                      rawRole=${profile?.raw_role ?? null}
-                      promSub=${"teamUsers"}
-                      setPromSub=${() => {}}
-                      onAbsencesSnapshot=${onAbsencesSnapshot}
-                      sessionEmail=${String(session?.user?.email || sessionStorage.getItem(LS_LOCAL_EMAIL) || "").trim()}
-                      actorDisplayName=${actorDisplayName}
-                    />`
-                : html`<${PrombutnesSection}
-                      userId=${effectiveUserId}
-                      role=${profile?.role ?? "user"}
-                      rawRole=${profile?.raw_role ?? null}
-                      promSub=${promSub}
-                      setPromSub=${setPromSub}
-                      onAbsencesSnapshot=${onAbsencesSnapshot}
-                      sessionEmail=${String(session?.user?.email || sessionStorage.getItem(LS_LOCAL_EMAIL) || "").trim()}
-                      actorDisplayName=${actorDisplayName}
-                    />`}
+                : view === "aktualitatesHistory"
+                  ? html`<${AktualitatesVestureView} />`
+                  : view === "team"
+                    ? html`<${PrombutnesSection}
+                        userId=${effectiveUserId}
+                        role=${profile?.role ?? "user"}
+                        rawRole=${profile?.raw_role ?? null}
+                        promSub=${"teamUsers"}
+                        setPromSub=${() => {}}
+                        onAbsencesSnapshot=${onAbsencesSnapshot}
+                        sessionEmail=${String(session?.user?.email || sessionStorage.getItem(LS_LOCAL_EMAIL) || "").trim()}
+                        actorDisplayName=${actorDisplayName}
+                      />`
+                    : html`<${PrombutnesSection}
+                        userId=${effectiveUserId}
+                        role=${profile?.role ?? "user"}
+                        rawRole=${profile?.raw_role ?? null}
+                        promSub=${promSub}
+                        setPromSub=${setPromSub}
+                        onAbsencesSnapshot=${onAbsencesSnapshot}
+                        sessionEmail=${String(session?.user?.email || sessionStorage.getItem(LS_LOCAL_EMAIL) || "").trim()}
+                        actorDisplayName=${actorDisplayName}
+                      />`}
             </${AppShellWithNav}>
           `;
         }

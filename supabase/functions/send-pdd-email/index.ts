@@ -5,12 +5,18 @@ const corsHeaders = {
 };
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
-const APPROVAL_LINK = "https://irinakupcova.github.io/PDD_aplikacija/prombutnes-vesture";
-const TO_EMAILS = ["katrina.jirgensone@vid.gov.lv", "irina.kupcova@vid.gov.lv"];
+
+const DEFAULT_APPROVAL_URL =
+  "https://irinakupcova.github.io/PDD_aplikacija/prombutnes-vesture";
+const DEFAULT_TO = "katrina.jirgensone@vid.gov.lv";
+const DEFAULT_CC = "irina.kupcova@vid.gov.lv";
 
 type RequestBody = {
   name?: unknown;
   veids?: unknown;
+  type?: unknown;
+  subject?: unknown;
+  url?: unknown;
 };
 
 function jsonResponse(payload: unknown, status = 200): Response {
@@ -36,6 +42,12 @@ function normalizeBody(input: RequestBody): { name: string; veids: string } {
   };
 }
 
+function isCitsPayload(raw: RequestBody, veids: string): boolean {
+  const t = String(raw?.type ?? "").trim().toLowerCase();
+  if (t) return t === "cits";
+  return veids.trim().toLowerCase() === "cits";
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
@@ -43,7 +55,11 @@ Deno.serve(async (req: Request) => {
   const resendApiKey = Deno.env.get("RESEND_API_KEY");
   if (!resendApiKey) return jsonResponse({ error: "Missing RESEND_API_KEY" }, 500);
 
-  const from = Deno.env.get("RESEND_FROM") ?? "PDD <onboarding@resend.dev>";
+  const from =
+    Deno.env.get("RESEND_FROM")?.trim() ||
+    "PDD <irina.kupcova@vid.gov.lv>";
+  const toPrimary = Deno.env.get("RESEND_TO")?.trim() || DEFAULT_TO;
+  const ccAddr = Deno.env.get("RESEND_CC")?.trim() || DEFAULT_CC;
 
   let rawBody: RequestBody;
   try {
@@ -57,11 +73,27 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "name and veids are required" }, 400);
   }
 
-  const html = `
+  if (!isCitsPayload(rawBody, veids)) {
+    return jsonResponse(
+      { success: true, skipped: true, reason: "not_cits" },
+      200,
+    );
+  }
+
+  const subjectRaw = String(rawBody?.subject ?? "").trim();
+  const subject = subjectRaw || "Lūdzu apstiprināt prombūtni";
+  const urlRaw = String(rawBody?.url ?? "").trim();
+  const approvalUrl = urlRaw || Deno.env.get("APPROVAL_URL")?.trim() || DEFAULT_APPROVAL_URL;
+
+  const html = `<!doctype html>
+<html>
+  <body>
     <p>Vārds: ${escapeHtml(name)}</p>
     <p>Veids: ${escapeHtml(veids)}</p>
-    <p>Links: <a href="${APPROVAL_LINK}">${APPROVAL_LINK}</a></p>
-  `;
+    <p>Apstipriniet prombūtni:</p>
+    <p><a href="${escapeHtml(approvalUrl)}" target="_blank" rel="noopener">Apstiprināt prombūtni</a></p>
+  </body>
+</html>`;
 
   try {
     const resendResp = await fetch(RESEND_ENDPOINT, {
@@ -72,8 +104,9 @@ Deno.serve(async (req: Request) => {
       },
       body: JSON.stringify({
         from,
-        to: TO_EMAILS,
-        subject: "Jauns pieteikums",
+        to: [toPrimary],
+        cc: [ccAddr],
+        subject,
         html,
       }),
     });
