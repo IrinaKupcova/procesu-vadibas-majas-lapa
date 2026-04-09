@@ -20,7 +20,9 @@ function extractUserDisplayName(p) {
   if (!p || typeof p !== "object") return "";
   return pick(
     p["Vārds uzvārds"] ||
+      p["Vārds Uzvārds"] ||
       p["Vards uzvards"] ||
+      p["Vards Uzvards"] ||
       p.vards_uzvards ||
       p.full_name ||
       p.email,
@@ -182,9 +184,11 @@ function authorLabelFromDbRow(r, nameMap) {
   const aidN = normUserId(aid);
   if (nameMap && aidN && nameMap.has(aidN)) return nameMap.get(aidN);
   const sid = normUserId(globalThis.__PDD_SESSION_USER_ID__);
+  const selfName = pick(globalThis.__PDD_ACTOR_DISPLAY_NAME__);
+  const selfEmail = pick(globalThis.__PDD_ACTOR_EMAIL__);
   if (aidN && sid && aidN === sid) {
-    const self = pick(globalThis.__PDD_ACTOR_DISPLAY_NAME__);
-    if (self) return self;
+    if (selfName) return selfName;
+    if (selfEmail) return selfEmail;
   }
   const emb = r?.users;
   if (emb && typeof emb === "object" && !Array.isArray(emb)) {
@@ -196,7 +200,9 @@ function authorLabelFromDbRow(r, nameMap) {
     const n = pick(u0["Vārds uzvārds"] || u0.full_name || u0.email);
     if (n) return n;
   }
-  return aid ? `${aid.slice(0, 8)}…` : "—";
+  if (selfName) return selfName;
+  if (selfEmail) return selfEmail;
+  return "—";
 }
 
 function rowFromDb(r, nameMap) {
