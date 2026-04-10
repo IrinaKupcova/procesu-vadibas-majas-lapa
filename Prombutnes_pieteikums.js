@@ -117,7 +117,7 @@ function getExtraFieldsDefinition() {
     },
     {
       key: "Papildu_info",
-      label: "Papildu informācija, piem., būšu pieejama telefoniski, vai Raksti man Whatsapp u.t.t.",
+      label: "Papildu informācija, piem., Būšu pieejama telefoniski, vai Raksti man Whatsapp u.t.t.",
       type: "textarea",
       placeholder: "Papildu informācija",
       maxLength: 2000,
