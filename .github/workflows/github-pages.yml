@@ -35,8 +35,13 @@ jobs:
           node << 'NODE'
           const fs = require("fs");
           let h = fs.readFileSync("index.html", "utf8");
-          const url = process.env.SUPA_URL || "";
-          const key = process.env.SUPA_KEY || "";
+          const strip = (s) =>
+            String(s || "")
+              .replace(/^\uFEFF/, "")
+              .replace(/[\u200B-\u200D\uFEFF]/g, "")
+              .trim();
+          const url = strip(process.env.SUPA_URL);
+          const key = strip(process.env.SUPA_KEY);
           if (url) {
             h = h.replace(
               /const FILE_SUPABASE_URL = "https:\/\/[^"]+";/,

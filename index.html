@@ -1030,6 +1030,20 @@
           return { url, key };
         }
 
+        /** fetch()/invoke pieprasa headerus kā „ByteString” (bez Unicode). Noņem BOM, zero-width utml. */
+        function sanitizeHttpHeaderValue(s) {
+          const t = String(s ?? "")
+            .replace(/^\uFEFF/, "")
+            .replace(/[\u200B-\u200D\uFEFF]/g, "");
+          let out = "";
+          for (let i = 0; i < t.length; i++) {
+            const c = t.charCodeAt(i);
+            if (c > 255 || c === 127 || (c < 32 && c !== 9)) continue;
+            out += t[i];
+          }
+          return out.trim();
+        }
+
         function getPddResendApiUrl() {
           const f = String(FILE_PDD_RESEND_API_URL || "").trim();
           if (f) return f.replace(/\/$/, "");
@@ -1185,7 +1199,7 @@
         async function callSendPddEmail({ name, veids, type }) {
           if (TIKAI_VIENKARSI_SKATS || isLocalMode() || !supabase) return { skipped: true };
           const cfg = loadConfig();
-          const apiKey = String(cfg.key || "").trim();
+          const apiKey = sanitizeHttpHeaderValue(cfg.key || "");
           if (!apiKey) return { ok: false, reason: "missing_anon_key", fnUrl: "" };
           const baseFromClient = String(supabase?.supabaseUrl || "").replace(/\/+$/, "");
           const baseFromFile = normalizeProjectUrl(cfg.url || "");
@@ -1195,7 +1209,8 @@
               : "") || getSendPddEmailFnUrl();
           if (!fnUrl) return { ok: false, reason: "missing_fn_url", fnUrl: "" };
 
-          const accessToken = await getAccessTokenForFunctions();
+          let accessToken = await getAccessTokenForFunctions();
+          accessToken = sanitizeHttpHeaderValue(accessToken);
 
           const emailPayload = {
             name,
@@ -1204,12 +1219,13 @@
           };
 
           async function tryFetchWithBearer(url, bearer) {
+            const b = sanitizeHttpHeaderValue(bearer);
             const r = await fetch(url, {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
                 apikey: apiKey,
-                Authorization: "Bearer " + String(bearer || "").trim(),
+                Authorization: "Bearer " + b,
               },
               body: JSON.stringify(emailPayload),
             });
@@ -1266,7 +1282,8 @@
             });
           }
 
-          const invokeNames = ["sendEmail", "resend-email", "send-pdd-email"];
+          const slugM = String(fnUrl || "").match(/\/functions\/v1\/([^/?#]+)/i);
+          const invokeNames = slugM ? [slugM[1]] : ["sendEmail"];
           const invokeHeaderVariants = [
             {
               via: "invoke_bearer_publishable",

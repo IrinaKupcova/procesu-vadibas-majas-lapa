@@ -8,7 +8,7 @@ Darbplūsma: `Deploy GitHub Pages`.
 
 | Nosaukums (precīzi) | No kurienes |
 |---------------------|-------------|
-| `VITE_SUPABASE_URL` | Supabase → Project Settings → API → Project URL (piem. `https://xxxx.supabase.co`) |
+| `VITE_SUPABASE_URL` | Supabase → Project Settings → API → Project URL — **nokopē precīzi** (bez liekām atstarpēm; bieža kļūda: `gqet` ↔ `qget` burtu secība ref ID). |
 | `VITE_SUPABASE_ANON_KEY` | Supabase → Project Settings → API → anon public / publishable key |
 
 Bez šīm lapā var palikt vecās vērtības no `index.html`.
