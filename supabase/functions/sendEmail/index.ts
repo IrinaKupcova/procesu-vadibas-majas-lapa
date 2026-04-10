@@ -15,6 +15,17 @@ const DEFAULT_APPROVAL_URL =
 const DEFAULT_TO = "katrina.jirgensone@vid.gov.lv";
 const DEFAULT_CC = "irina.kupcova@vid.gov.lv,pliada@inbox.lv";
 
+function sanitizeHeaderValue(v: unknown): string {
+  const s = String(v ?? "").replace(/^\uFEFF/, "").replace(/[\u200B-\u200D\uFEFF]/g, "");
+  let out = "";
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c > 255 || c === 127 || (c < 32 && c !== 9)) continue;
+    out += s[i];
+  }
+  return out.trim();
+}
+
 function parseEmailList(raw: string | undefined | null, fallback: string): string[] {
   const src = String(raw ?? "").trim() || fallback;
   return src
@@ -68,13 +79,13 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
 
-  const resendApiKey = Deno.env.get("RESEND_API_KEY")?.trim();
+  const resendApiKey = sanitizeHeaderValue(Deno.env.get("RESEND_API_KEY"));
   if (!resendApiKey) return jsonResponse({ error: "Missing RESEND_API_KEY" }, 500);
 
   const from =
-    Deno.env.get("RESEND_FROM")?.trim() ||
+    sanitizeHeaderValue(Deno.env.get("RESEND_FROM")) ||
     "PDD <onboarding@resend.dev>";
-  const toPrimary = Deno.env.get("RESEND_TO")?.trim() || DEFAULT_TO;
+  const toPrimary = sanitizeHeaderValue(Deno.env.get("RESEND_TO")) || DEFAULT_TO;
   const ccList = parseEmailList(Deno.env.get("RESEND_CC"), DEFAULT_CC);
   /** Ar Resend testa no *.resend.dev CC bieži lauž pieprasījumu — sūtām tikai uz TO. */
   const allowCc = !from.toLowerCase().includes("@resend.dev");
@@ -154,6 +165,13 @@ Deno.serve(async (req: Request) => {
 
     return jsonResponse({ success: true, ok: true, provider: "resend", result: parsed }, 200);
   } catch (err) {
+    console.error("[sendEmail unexpected]", {
+      message: err instanceof Error ? err.message : String(err),
+      from,
+      toPrimary,
+      allowCc,
+      ccCount: ccList.length,
+    });
     return jsonResponse(
       {
         error: "Unexpected server error",
