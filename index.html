@@ -439,8 +439,9 @@
 
       <!-- Lokālie dati + ziņas komandai (bez Supabase/API) -->
       <script src="./Komanda.js?v=20260407"></script>
-      <script src="./Sodien.js?v=2026041014"></script>
-      <script src="./Kalendars.js?v=20260407"></script>
+      <script src="./Sodien.js?v=20260420"></script>
+      <script src="./Kalendars.js?v=20260410"></script>
+      <script src="./Navigacija.js?v=20260420"></script>
       <script src="./Filtr.js?v=20260407"></script>
       <script src="./Saskaņošana.js?v=20260407"></script>
       <script src="./Prombutnes_vesture.js?v=20260407"></script>
@@ -1116,6 +1117,7 @@
         }
 
         const html = htm.bind(React.createElement);
+        const AppShellWithNav = globalThis.PDD_NAV.createAppShellWithNav(html);
         const __cfg = loadConfig();
         const supabase = configured()
           ? createClient(normalizeProjectUrl(__cfg.url), String(__cfg.key).trim().replace(/\s+/g, ""))
@@ -2244,111 +2246,6 @@
           `;
         }
 
-        function AppShellWithNav({
-          view,
-          onChangeView,
-          promSub,
-          onPromSubChange,
-          showPromDeputyTab,
-          showPendingCitsBadge,
-          header,
-          children,
-        }) {
-          return html`
-            <div class="app-layout">
-              <aside class="app-nav" aria-label="Galvenā navigācija">
-                <div class="app-nav-inner">
-                  <p class="app-nav-title">Navigācija</p>
-                  <button
-                    type="button"
-                    class=${`app-nav-link ${view === "home" ? "active" : ""}`}
-                    onClick=${() => onChangeView("home")}
-                  >
-                    Sākums
-                  </button>
-                  <button
-                    type="button"
-                    class=${`app-nav-link ${view === "team" ? "active" : ""}`}
-                    onClick=${() => {
-                      onChangeView("team");
-                    }}
-                  >
-                    Komanda
-                  </button>
-                  <div>
-                    <button
-                      type="button"
-                    class=${`app-nav-link ${view === "prombutnes" ? "active" : ""}`}
-                      onClick=${() => onChangeView("prombutnes")}
-                    >
-                      Prombūtnes
-                    </button>
-                  ${view === "prombutnes" || view === "home"
-                      ? html`
-                          <div class="app-nav-sub" role="group" aria-label="Prombūtnes apakšsadaļas">
-                            <button
-                              type="button"
-                              class=${`app-nav-sublink ${view === "prombutnes" && promSub === "calendar" ? "active" : ""}`}
-                              onClick=${() => onPromSubChange("calendar")}
-                            >
-                              Kalendārs
-                            </button>
-                            <button
-                              type="button"
-                              class=${`app-nav-sublink ${view === "prombutnes" && promSub === "request" ? "active" : ""}`}
-                              onClick=${() => onPromSubChange("request")}
-                            >
-                              Prombūtnes pieteikums
-                            </button>
-                            <button
-                              type="button"
-                              class=${`app-nav-sublink ${view === "prombutnes" && promSub === "history" ? "active" : ""}`}
-                              onClick=${() => onPromSubChange("history")}
-                            >
-                              Prombūtnes vēsture
-                              ${showPendingCitsBadge
-                                ? html`<span class="app-nav-badge-cits" title="Gaida apstiprinājumu">Gaida apstiprinājumu</span>`
-                                : null}
-                            </button>
-                            ${showPromDeputyTab
-                              ? html`
-                                  <button
-                                    type="button"
-                                    class=${`app-nav-sublink ${view === "prombutnes" && promSub === "deputy" ? "active" : ""}`}
-                                    onClick=${() => onPromSubChange("deputy")}
-                                  >
-                                    Apstiprinātāja maiņa
-                                  </button>
-                                `
-                              : null}
-                            <button
-                              type="button"
-                              class=${`app-nav-sublink ${view === "prombutnes" && promSub === "changes" ? "active" : ""}`}
-                              onClick=${() => onPromSubChange("changes")}
-                            >
-                              Auditācijas vēsture
-                            </button>
-                          </div>
-                        `
-                      : null}
-                  </div>
-                  <button
-                    type="button"
-                    class=${`app-nav-link ${view === "aktualitatesHistory" ? "active" : ""}`}
-                    onClick=${() => onChangeView("aktualitatesHistory")}
-                  >
-                    Aktualitāšu vēsture
-                  </button>
-                </div>
-              </aside>
-              <div class="app-main">
-                ${header}
-                ${children}
-              </div>
-            </div>
-          `;
-        }
-
         function AktualitatesVestureView() {
           const [rows, setRows] = useState(undefined);
           const [err, setErr] = useState(null);
@@ -2921,6 +2818,21 @@
             if (label && trimmed) return `${label} · ${trimmed}`;
             if (label) return label;
             return trimmed || null;
+          }
+
+          function cancelAbsenceForm() {
+            const uid = String(resolvedUserId ?? "").trim();
+            setSelectedUserId(uid || null);
+            setTypeId("");
+            setStartDate("");
+            setEndDate("");
+            setComment("");
+            setReplacementUserId("");
+            setExtraInfo("");
+            setCitsAllDay(true);
+            setCitsFromTime("09:00");
+            setCitsToTime("17:00");
+            if (typeof onConsumePreset === "function") onConsumePreset();
           }
 
           useEffect(() => {
@@ -3554,7 +3466,7 @@
                 </div>
                 <div class="field">
                   <label for="pextra">
-                    Papildu informācija, piem., būšu pieejama telefoniski, vai Raksti man Watsapp u.t.t.
+                    Papildu informācija, piem., Būšu pieejama telefoniski, vai Raksti man Watsapp u.t.t.
                   </label>
                   <textarea
                     id="pextra"
@@ -3564,9 +3476,14 @@
                     onChange=${(ev) => setExtraInfo(ev.target.value)}
                   />
                 </div>
-                <button type="submit" class="btn btn-primary" disabled=${busy}>
-                  ${busy ? "Sūta…" : "Iesniegt"}
-                </button>
+                <div class="row" style=${{ gap: "0.5rem", flexWrap: "wrap" }}>
+                  <button type="submit" class="btn btn-primary" disabled=${busy}>
+                    ${busy ? "Sūta…" : "Iesniegt"}
+                  </button>
+                  <button type="button" class="btn btn-ghost" disabled=${busy} onClick=${cancelAbsenceForm}>
+                    Atcelt
+                  </button>
+                </div>
               </form>
               ${isLocalMode()
                 ? html`
@@ -3619,6 +3536,19 @@
                                                         </button>
                                                         <button type="button" class="btn btn-ghost btn-small" onClick=${() => decideLocalCits(r, "reject")}>
                                                           Noraidīt
+                                                        </button>
+                                                        <button
+                                                          type="button"
+                                                          class="btn btn-ghost btn-small"
+                                                          onClick=${() =>
+                                                            setDecisionReason((m) => {
+                                                              const n = { ...m };
+                                                              delete n[r.id];
+                                                              return n;
+                                                            })
+                                                          }
+                                                        >
+                                                          Atcelt
                                                         </button>
                                                       </div>
                                                     </div>
@@ -3904,11 +3834,18 @@
           const [periodTo, setPeriodTo] = useState(deputyValidTo ?? "");
           const [busy, setBusy] = useState(false);
           const [msg, setMsg] = useState(null);
+          const [resetManagerOpen, setResetManagerOpen] = useState(false);
           useEffect(() => {
             setSel(deputyUserId ? String(deputyUserId) : DEPUTY_OPT_MANAGER);
             setPeriodFrom(deputyValidFrom ?? "");
             setPeriodTo(deputyValidTo ?? "");
           }, [deputyUserId, deputyValidFrom, deputyValidTo]);
+          function revertDeputyDraft() {
+            setSel(deputyUserId ? String(deputyUserId) : DEPUTY_OPT_MANAGER);
+            setPeriodFrom(deputyValidFrom ?? "");
+            setPeriodTo(deputyValidTo ?? "");
+            setMsg(null);
+          }
           async function persist(nextId, fromStr, toStr) {
             setBusy(true);
             setMsg(null);
@@ -4058,18 +3995,10 @@
             await persist(nextId, fromStr, toStr);
           }
           async function resetToManager() {
-            if (
-              !window.confirm(
-                "Vai apstiprini atiestatīšanu uz pamatvadītāju " +
-                  DEFAULT_MANAGER_NAME +
-                  "? Apstiprinātāja periods un izvēlētā persona tiks notīrīti."
-              )
-            ) {
-              return;
-            }
             setSel(DEPUTY_OPT_MANAGER);
             setPeriodFrom("");
             setPeriodTo("");
+            setResetManagerOpen(false);
             await persist(null, "", "");
           }
           const showPeriod = sel !== DEPUTY_OPT_MANAGER;
@@ -4128,16 +4057,55 @@
                       </div>
                     `
                   : null}
-                <div class="row">
+                <div class="row" style=${{ flexWrap: "wrap", gap: "0.35rem" }}>
                   <button type="submit" class="btn btn-primary btn-small" disabled=${busy}>
                     ${busy ? "…" : "Saglabāt"}
                   </button>
-                  <button type="button" class="btn btn-ghost btn-small" disabled=${busy} onClick=${resetToManager}>
+                  <button type="button" class="btn btn-ghost btn-small" disabled=${busy} onClick=${revertDeputyDraft}>
+                    Atcelt
+                  </button>
+                  <button type="button" class="btn btn-ghost btn-small" disabled=${busy} onClick=${() => setResetManagerOpen(true)}>
                     Atgriezt izmaiņas
                   </button>
                 </div>
               </form>
               ${msg ? html`<p style=${{ margin: "0.35rem 0 0", fontSize: "0.82rem", color: "var(--muted)" }}>${msg}</p>` : null}
+              ${resetManagerOpen
+                ? html`
+                    <div
+                      style=${{
+                        position: "fixed",
+                        inset: 0,
+                        background: "rgba(0,0,0,0.45)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        zIndex: 60,
+                        padding: "1rem",
+                      }}
+                      onClick=${() => setResetManagerOpen(false)}
+                    >
+                      <div
+                        class="list-panel"
+                        style=${{ maxWidth: "400px", width: "100%" }}
+                        onClick=${(ev) => ev.stopPropagation()}
+                      >
+                        <p style=${{ margin: "0 0 0.75rem" }}>
+                          Vai apstiprini atiestatīšanu uz pamatvadītāju <strong>${DEFAULT_MANAGER_NAME}</strong>? Apstiprinātāja periods un
+                          izvēlētā persona tiks notīrīti.
+                        </p>
+                        <div class="row" style=${{ gap: "0.35rem", flexWrap: "wrap" }}>
+                          <button type="button" class="btn btn-danger btn-small" disabled=${busy} onClick=${() => void resetToManager()}>
+                            Jā, atiestatīt
+                          </button>
+                          <button type="button" class="btn btn-ghost btn-small" disabled=${busy} onClick=${() => setResetManagerOpen(false)}>
+                            Atcelt
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  `
+                : null}
             </div>
           `;
         }
@@ -4398,9 +4366,14 @@
                           onChange=${(e) => setRejectReason(e.target.value)}
                           placeholder="Noraidījuma iemesls (pēc izvēles)"
                         />
-                        <button type="button" class="btn btn-ghost" disabled=${busy || !canApprove} onClick=${reject}>
-                          ${busy ? "…" : "Noraidīt"}
-                        </button>
+                        <div class="row" style=${{ gap: "0.35rem", flexWrap: "wrap", alignItems: "center" }}>
+                          <button type="button" class="btn btn-ghost" disabled=${busy || !canApprove} onClick=${reject}>
+                            ${busy ? "…" : "Noraidīt"}
+                          </button>
+                          <button type="button" class="btn btn-ghost btn-small" disabled=${busy} onClick=${() => setRejectReason("")}>
+                            Atcelt
+                          </button>
+                        </div>
                         ${!canApprove && !isLocalMode()
                           ? html`<p style=${{ margin: 0, fontSize: "0.82rem", color: "var(--muted)" }}>
                               Tikai vadītājs vai norādītais aktīvais aizvietotājs var apstiprināt.
@@ -4459,6 +4432,8 @@
         }) {
           const [editing, setEditing] = useState(null);
           const [delId, setDelId] = useState(null);
+          const [rejectForId, setRejectForId] = useState(null);
+          const [rejectReasonText, setRejectReasonText] = useState("");
           const [filtersOpen, setFiltersOpen] = useState(false);
           const [histPage, setHistPage] = useState(0);
           const HIST_PAGE_SIZE = 20;
@@ -4802,6 +4777,62 @@
               setEditing(null);
               onRefresh();
             }
+          }
+          function openRejectCits(a) {
+            setRejectForId(a.id);
+            setRejectReasonText("");
+          }
+          function closeRejectCits() {
+            setRejectForId(null);
+            setRejectReasonText("");
+          }
+          async function submitRejectCits() {
+            const id = rejectForId;
+            const trimmed = String(rejectReasonText ?? "").trim();
+            if (!id) return;
+            if (!trimmed) {
+              alert("Noraidīšanas iemesls ir obligāts.");
+              return;
+            }
+            const row = (absences ?? []).find((x) => String(x.id) === String(id));
+            if (!row) {
+              alert("Ieraksts nav atrasts.");
+              closeRejectCits();
+              return;
+            }
+            if (isLocalMode()) {
+              const rows = getLocalAbsences().map((r) =>
+                r.id === row.id
+                  ? {
+                      ...r,
+                      status: "rejected",
+                      reject_reason: trimmed,
+                    }
+                  : r
+              );
+              setLocalAbsences(rows);
+              pushChangeLog("prombutne.noraidit", `Ieraksts ${row.id} noraidīts`);
+            } else {
+              const { error } = await supabase
+                .from("prombutnes_dati")
+                .update({
+                  [ABSENCE_COLS_RUNTIME.status]: "rejected",
+                  [ABSENCE_COLS_RUNTIME.reject_reason]: trimmed,
+                })
+                .eq("id", row.id);
+              if (error) {
+                alert(error.message);
+                return;
+              }
+              void callPddResendApi({
+                action: "cits_absence_decided",
+                absence_id: row.id,
+                decision: "rejected",
+                reject_reason: trimmed,
+              });
+            }
+            closeRejectCits();
+            onRefresh();
           }
           async function confirmDelete() {
             if (!delId) return;
@@ -5373,49 +5404,7 @@
                                                 <button
                                                   type="button"
                                                   class="btn btn-ghost btn-small"
-                                                  onClick=${async () => {
-                                                    const reason = window.prompt(
-                                                      "Iemesls noraidīšanai (tiks pievienots pie komentāra):"
-                                                    );
-                                                    if (reason == null) return;
-                                                    const trimmed = String(reason).trim();
-                                                    if (!trimmed) return;
-                                                    if (isLocalMode()) {
-                                                      const rows = getLocalAbsences().map((r) =>
-                                                        r.id === a.id
-                                                          ? {
-                                                              ...r,
-                                                              status: "rejected",
-                                                              reject_reason: trimmed,
-                                                            }
-                                                          : r
-                                                      );
-                                                      setLocalAbsences(rows);
-                                                      pushChangeLog(
-                                                        "prombutne.noraidit",
-                                                        `Ieraksts ${a.id} noraidīts`
-                                                      );
-                                                    } else {
-                                                      const { error } = await supabase
-                                                        .from("prombutnes_dati")
-                                                        .update({
-                                                          [ABSENCE_COLS_RUNTIME.status]: "rejected",
-                                                          [ABSENCE_COLS_RUNTIME.reject_reason]: trimmed,
-                                                        })
-                                                        .eq("id", a.id);
-                                                      if (error) {
-                                                        alert(error.message);
-                                                        return;
-                                                      }
-                                                      void callPddResendApi({
-                                                        action: "cits_absence_decided",
-                                                        absence_id: a.id,
-                                                        decision: "rejected",
-                                                        reject_reason: trimmed,
-                                                      });
-                                                    }
-                                                    onRefresh();
-                                                  }}
+                                                  onClick=${() => openRejectCits(a)}
                                                 >
                                                   Noraidīt
                                                 </button>
@@ -5573,7 +5562,48 @@
                             Jā, dzēst
                           </button>
                           <button type="button" class="btn btn-ghost btn-small" onClick=${() => setDelId(null)}>
-                            Nē
+                            Atcelt
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  `
+                : null}
+              ${rejectForId
+                ? html`
+                    <div
+                      style=${{
+                        position: "fixed",
+                        inset: 0,
+                        background: "rgba(0,0,0,0.45)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        zIndex: 50,
+                        padding: "1rem",
+                      }}
+                    >
+                      <div class="list-panel" style=${{ maxWidth: "420px", width: "100%" }}>
+                        <h3 style=${{ margin: "0 0 0.65rem", fontSize: "1rem" }}>Noraidīt pieprasījumu</h3>
+                        <p style=${{ margin: "0 0 0.5rem", fontSize: "0.88rem", color: "var(--muted)" }}>
+                          Iemesls tiks pievienots pie komentāra / noraidījuma lauka.
+                        </p>
+                        <div class="field" style=${{ marginBottom: "0.85rem" }}>
+                          <label>Iemesls noraidīšanai</label>
+                          <textarea
+                            class="textarea"
+                            rows="4"
+                            value=${rejectReasonText}
+                            onChange=${(ev) => setRejectReasonText(ev.target.value)}
+                            placeholder="Īsi apraksti iemeslu…"
+                          />
+                        </div>
+                        <div class="row">
+                          <button type="button" class="btn btn-danger btn-small" onClick=${submitRejectCits}>
+                            Jā, noraidīt
+                          </button>
+                          <button type="button" class="btn btn-ghost btn-small" onClick=${closeRejectCits}>
+                            Atcelt
                           </button>
                         </div>
                       </div>
@@ -6075,6 +6105,104 @@
           }, [session?.user, profile]);
           const [view, setView] = useState("home");
           const [promSub, setPromSub] = useState("calendar");
+          const [navPast, setNavPast] = useState([]);
+          const PINNED_SECTIONS_LS_KEY = "pdd_pinned_sections_v1";
+          function makeSectionLabel(sectionView, sectionPromSub) {
+            if (sectionView === "home") return "Sākums";
+            if (sectionView === "team") return "Komanda";
+            if (sectionView === "aktualitatesHistory") return "Aktualitāšu vēsture";
+            if (sectionView !== "prombutnes") return "Sadaļa";
+            if (sectionPromSub === "request") return "Prombūtnes pieteikums";
+            if (sectionPromSub === "history") return "Prombūtnes vēsture";
+            if (sectionPromSub === "changes") return "Auditācijas vēsture";
+            if (sectionPromSub === "deputy") return "Apstiprinātāja maiņa";
+            if (sectionPromSub === "teamUsers") return "Komanda";
+            return "Prombūtnes kalendārs";
+          }
+          function normalizeSection(sectionView, sectionPromSub) {
+            const safeView = String(sectionView ?? "").trim();
+            const safePromSub = String(sectionPromSub ?? "").trim();
+            if (!safeView) return null;
+            const normalizedSub = safeView === "prombutnes" ? safePromSub || "calendar" : "";
+            const key = `${safeView}:${normalizedSub}`;
+            return {
+              key,
+              view: safeView,
+              promSub: normalizedSub,
+              label: makeSectionLabel(safeView, normalizedSub),
+            };
+          }
+          const [pinnedSections, setPinnedSections] = useState(() => {
+            try {
+              const raw = localStorage.getItem(PINNED_SECTIONS_LS_KEY);
+              if (!raw) return [];
+              const parsed = JSON.parse(raw);
+              if (!Array.isArray(parsed)) return [];
+              return parsed
+                .map((x) => normalizeSection(x?.view, x?.promSub))
+                .filter(Boolean)
+                .slice(0, 12);
+            } catch (_) {
+              return [];
+            }
+          });
+          useEffect(() => {
+            try {
+              localStorage.setItem(PINNED_SECTIONS_LS_KEY, JSON.stringify(pinnedSections));
+            } catch (_) {}
+          }, [pinnedSections]);
+          const currentSection = normalizeSection(view, view === "prombutnes" ? promSub : "");
+          const isCurrentSectionPinned = useMemo(
+            () => Boolean(currentSection && pinnedSections.some((x) => x.key === currentSection.key)),
+            [currentSection, pinnedSections]
+          );
+          const handleChangeView = useCallback((v) => {
+            if (v === view) {
+              if (v === "prombutnes") {
+                setNavPast((p) => [...p, { view, promSub }]);
+                setPromSub("calendar");
+              }
+              return;
+            }
+            setNavPast((p) => [...p, { view, promSub }]);
+            setView(v);
+            if (v === "prombutnes") setPromSub("calendar");
+          }, [view, promSub]);
+          const handlePromSubChange = useCallback((sub) => {
+            setNavPast((p) => [...p, { view, promSub }]);
+            setPromSub(sub);
+            setView("prombutnes");
+          }, [view, promSub]);
+          const handleGoBack = useCallback(() => {
+            setNavPast((p) => {
+              if (p.length === 0) return p;
+              const prev = p[p.length - 1];
+              const next = p.slice(0, -1);
+              queueMicrotask(() => {
+                setView(prev.view);
+                setPromSub(prev.promSub);
+              });
+              return next;
+            });
+          }, []);
+          const handlePinCurrentSection = useCallback(() => {
+            if (!currentSection) return;
+            setPinnedSections((prev) => {
+              if (prev.some((x) => x.key === currentSection.key)) return prev;
+              return [...prev, currentSection];
+            });
+          }, [currentSection]);
+          const handleUnpinSection = useCallback((sectionKey) => {
+            setPinnedSections((prev) => prev.filter((x) => x.key !== sectionKey));
+          }, []);
+          const handleOpenPinnedSection = useCallback((item) => {
+            if (!item?.view) return;
+            if (item.view === "prombutnes") {
+              handlePromSubChange(item.promSub || "calendar");
+            } else {
+              handleChangeView(item.view);
+            }
+          }, [handleChangeView, handlePromSubChange]);
           const [pendingCitsNav, setPendingCitsNav] = useState(false);
           const [homeAbsencesSnapshot, setHomeAbsencesSnapshot] = useState([]);
           const onAbsencesSnapshot = useCallback((list, uid, canAppr) => {
@@ -6245,6 +6373,7 @@
 
           async function signOut() {
             if (TIKAI_VIENKARSI_SKATS) {
+              setNavPast([]);
               setView("home");
               return;
             }
@@ -6253,11 +6382,13 @@
               sessionStorage.removeItem(LS_LOCAL_NAME);
               removeStickyAuthValue(LS_LOCAL_USER_ID);
               removeStickyAuthValue(LS_LOCAL_EMAIL);
+              setNavPast([]);
               setView("home");
               location.reload();
               return;
             }
             if (supabase) await supabase.auth.signOut();
+            setNavPast([]);
             setView("home");
           }
 
@@ -6305,17 +6436,18 @@
           return html`
             <${AppShellWithNav}
               view=${view}
-              onChangeView=${(v) => {
-                setView(v);
-                if (v === "prombutnes") setPromSub("calendar");
-              }}
+              onChangeView=${handleChangeView}
               promSub=${promSub}
-              onPromSubChange=${(sub) => {
-                setPromSub(sub);
-                setView("prombutnes");
-              }}
+              onPromSubChange=${handlePromSubChange}
               showPromDeputyTab=${showPromDeputyTab}
               showPendingCitsBadge=${pendingCitsNav}
+              canGoBack=${navPast.length > 0}
+              onGoBack=${handleGoBack}
+              onPinCurrentSection=${handlePinCurrentSection}
+              isCurrentSectionPinned=${isCurrentSectionPinned}
+              pinnedSections=${pinnedSections}
+              onOpenPinnedSection=${handleOpenPinnedSection}
+              onUnpinSection=${handleUnpinSection}
               header=${html`
                 <header class="app-header">
                   ${title}
@@ -6335,6 +6467,7 @@
               ${view === "home"
                 ? html`<${Dashboard}
                     onOpenPrombutnes=${() => {
+                      setNavPast((p) => [...p, { view, promSub }]);
                       setView("prombutnes");
                       setPromSub("calendar");
                     }}

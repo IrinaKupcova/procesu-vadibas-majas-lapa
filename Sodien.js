@@ -695,8 +695,62 @@ async function addAktualitate() {
   window.location.reload();
 }
 
-async function deleteAktualitate(id) {
-  if (!confirm("Dzēst šo aktualitāti?")) return;
+let sodienDeleteModalEl = null;
+
+function closeSodienDeleteModal() {
+  if (sodienDeleteModalEl && sodienDeleteModalEl.parentNode) {
+    sodienDeleteModalEl.parentNode.removeChild(sodienDeleteModalEl);
+  }
+  sodienDeleteModalEl = null;
+}
+
+function openSodienDeleteModal(id) {
+  closeSodienDeleteModal();
+  const backdrop = document.createElement("div");
+  backdrop.setAttribute("role", "presentation");
+  backdrop.style.cssText =
+    "position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:70;padding:1rem;";
+  const panel = document.createElement("div");
+  panel.className = "list-panel";
+  panel.style.cssText = "max-width:360px;width:100%;box-sizing:border-box;";
+  panel.setAttribute("role", "dialog");
+  panel.setAttribute("aria-modal", "true");
+  panel.setAttribute("aria-label", "Dzēst aktualitāti");
+  panel.addEventListener("click", (ev) => ev.stopPropagation());
+  const p = document.createElement("p");
+  p.textContent = "Dzēst šo aktualitāti?";
+  p.style.margin = "0 0 0.75rem";
+  const row = document.createElement("div");
+  row.className = "row";
+  row.style.cssText = "gap:0.35rem;flex-wrap:wrap;";
+  const btnDel = document.createElement("button");
+  btnDel.type = "button";
+  btnDel.className = "btn btn-danger btn-small";
+  btnDel.textContent = "Jā, dzēst";
+  const btnCancel = document.createElement("button");
+  btnCancel.type = "button";
+  btnCancel.className = "btn btn-ghost btn-small";
+  btnCancel.textContent = "Atcelt";
+  btnCancel.onclick = () => closeSodienDeleteModal();
+  backdrop.onclick = () => closeSodienDeleteModal();
+  btnDel.onclick = () => {
+    closeSodienDeleteModal();
+    void runDeleteAktualitate(id);
+  };
+  row.appendChild(btnDel);
+  row.appendChild(btnCancel);
+  panel.appendChild(p);
+  panel.appendChild(row);
+  backdrop.appendChild(panel);
+  document.body.appendChild(backdrop);
+  sodienDeleteModalEl = backdrop;
+}
+
+function deleteAktualitate(id) {
+  openSodienDeleteModal(id);
+}
+
+async function runDeleteAktualitate(id) {
   const sb = globalThis.__PDD_SUPABASE__;
   const useRemote = Boolean(sodienUiOpts.useSupabase && sb);
   if (useRemote) {
