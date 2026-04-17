@@ -1214,6 +1214,7 @@ function renderTodayInfo({
                     onClick=${() => (typeof onOpenTodayTask === "function" ? onOpenTodayTask(t) : null)}
                   >
                     ${String(t?.module || "Darba uzdevumi")} · ${String(t?.subtitle || "").trim() ? `${String(t.subtitle).trim()} — ` : ""}${String(t?.title || "Uzdevums")}
+                    ${String(t?.topic || "").trim() ? ` · Tēma: ${String(t.topic).trim()}` : ""}
                     ${String(t?.dueDate || "").trim() ? ` (${formatLvDate(String(t.dueDate))})` : ""}
                   </button>
                 `

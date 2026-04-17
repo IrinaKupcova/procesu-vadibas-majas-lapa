@@ -10,6 +10,7 @@
   const IAD_ALIAS = {
     numurs: ["IAD_numurs", "iad_numurs", "IAD numurs", "numurs", "Nr", "nr"],
     nosaukums: ["IAD_nosaukums", "iad_nosaukums", "IAD nosaukums", "nosaukums"],
+    tema: ["IAD_ieteikuma_tema", "IAD ieteikuma tēma", "IAD ieteikuma tema", "IAD_tema", "tema", "tēma"],
     termins: ["IAD_termins", "iad_termins", "IAD_ieteikuma_termins", "Termins", "termins"],
     atbildigais: ["Atbildīgais", "Atbildigais", "atbildīgais", "atbildigais"],
     statuss: ["IAD_statuss", "iad_statuss", "Statuss", "statuss", "IAD statuss", "Izpildes_statuss", "Izpildes statuss"],
@@ -25,6 +26,7 @@
   const WRITE_DEFAULT = {
     numurs: "IAD_numurs",
     nosaukums: "IAD_nosaukums",
+    tema: "IAD_ieteikuma_tema",
     termins: "Termins",
     atbildigais: "Atbildigais",
     statuss: "IAD_statuss",
@@ -96,6 +98,7 @@
     const probes = [
       ["numurs", [...IAD_ALIAS.numurs, WRITE_DEFAULT.numurs]],
       ["nosaukums", [...IAD_ALIAS.nosaukums, WRITE_DEFAULT.nosaukums]],
+      ["tema", [...IAD_ALIAS.tema, WRITE_DEFAULT.tema]],
       ["termins", [...IAD_ALIAS.termins, WRITE_DEFAULT.termins]],
       ["atbildigais", [...IAD_ALIAS.atbildigais, WRITE_DEFAULT.atbildigais]],
       ["statuss", [...IAD_ALIAS.statuss, WRITE_DEFAULT.statuss]],
@@ -268,6 +271,12 @@
       iad_numurs: "IaD numurs",
       IAD_nosaukums: "IaD nosaukums",
       iad_nosaukums: "IaD nosaukums",
+      IAD_ieteikuma_tema: "IaD ieteikuma tēma (īss apraksts)",
+      "IAD ieteikuma tēma": "IaD ieteikuma tēma (īss apraksts)",
+      "IAD ieteikuma tema": "IaD ieteikuma tēma (īss apraksts)",
+      IAD_tema: "IaD ieteikuma tēma (īss apraksts)",
+      tema: "IaD ieteikuma tēma (īss apraksts)",
+      "tēma": "IaD ieteikuma tēma (īss apraksts)",
       IAD_termins: "IaD ieteikuma termiņš",
       IAD_ieteikuma_termins: "IaD ieteikuma termiņš",
       Termins: "IaD ieteikuma termiņš",
@@ -316,6 +325,7 @@
     }
     resolve("numurs", IAD_ALIAS.numurs);
     resolve("nosaukums", IAD_ALIAS.nosaukums);
+    resolve("tema", IAD_ALIAS.tema);
     resolve("termins", IAD_ALIAS.termins);
     resolve("atbildigais", IAD_ALIAS.atbildigais);
     resolve("statuss", IAD_ALIAS.statuss);
@@ -341,6 +351,7 @@
       id: rowIdValue(r),
       IAD_numurs: toStr(pickByAliases(r, IAD_ALIAS.numurs), 160),
       IAD_nosaukums: toStr(pickByAliases(r, IAD_ALIAS.nosaukums), 600),
+      IAD_ieteikuma_tema: toStr(pickByAliases(r, IAD_ALIAS.tema), 280),
       IAD_termins: toDateInputValue(pickByAliases(r, IAD_ALIAS.termins)),
       Atbildigais: joinNameList(parseNameList(pickByAliases(r, IAD_ALIAS.atbildigais))),
       IAD_statuss: statusLabel(pickByAliases(r, IAD_ALIAS.statuss, "Aktīvs")),
@@ -359,6 +370,7 @@
     return {
       IAD_numurs: "",
       IAD_nosaukums: "",
+      IAD_ieteikuma_tema: "",
       IAD_termins: "",
       Atbildigais: "",
       IAD_statuss: "Aktīvs",
@@ -383,6 +395,7 @@
     }
     p[runtimeCols.numurs] = toStr(d?.IAD_numurs, 160) || null;
     p[runtimeCols.nosaukums] = toStr(d?.IAD_nosaukums, 600) || null;
+    p[runtimeCols.tema] = toStr(d?.IAD_ieteikuma_tema, 280) || null;
     p[runtimeCols.termins] = toDateInputValue(d?.IAD_termins) || null;
     p[runtimeCols.atbildigais] = joinNameList(parseNameList(d?.Atbildigais)) || null;
     p[runtimeCols.statuss] = statusLabel(d?.IAD_statuss) || "Aktīvs";
@@ -625,6 +638,7 @@
         key: `iad:${String(r?.id ?? r?.IAD_numurs ?? r?.IAD_nosaukums ?? "")}`,
         module: "IaD ieteikumi",
         title: String(r?.IAD_nosaukums || "IaD ieteikums"),
+        topic: String(r?.IAD_ieteikuma_tema || "").trim(),
         subtitle: String(r?.IAD_numurs || "").trim(),
         dueDate: toDateInputValue(r?.IAD_termins) || toDateInputValue(r?.IAD_datums) || "",
         target: {
@@ -632,6 +646,7 @@
           rowId: r?.id ?? null,
           rowNumurs: String(r?.IAD_numurs || "").trim(),
           rowNosaukums: String(r?.IAD_nosaukums || "").trim(),
+          rowTema: String(r?.IAD_ieteikuma_tema || "").trim(),
         },
       }));
   }
@@ -854,6 +869,8 @@
       const [draft, setDraft] = useState(emptyDraft());
       const [teamOptions, setTeamOptions] = useState([]);
       const focusRetryRef = useRef({ sig: "", retries: 0 });
+      const focusHandledRef = useRef(false);
+      const [pendingFocusTask, setPendingFocusTask] = useState(null);
 
       const activeRows = rows.filter((r) => !isInactiveStatus(r.IAD_statuss));
       const inactiveRows = rows.filter((r) => isInactiveStatus(r.IAD_statuss));
@@ -878,6 +895,7 @@
         const targetId = String(ft?.rowId ?? "").trim();
         const targetNum = normalizeLookupText(ft?.rowNumurs ?? ft?.subtitle ?? "");
         const targetTitle = normalizeLookupText(ft?.rowNosaukums ?? ft?.title ?? "");
+        const targetTema = normalizeLookupText(ft?.rowTema ?? ft?.topic ?? "");
         let hit =
           src.find((r) => targetKey && taskRowKey(r) === targetKey) ||
           src.find((r) => targetId && String(r?.id ?? "").trim() === targetId) ||
@@ -893,6 +911,10 @@
         if (targetTitle) {
           const matches = src.filter((r) => normalizeLookupText(r?.IAD_nosaukums) === targetTitle);
           if (matches.length === 1) return matches[0];
+        }
+        if (targetTema) {
+          const temaMatches = src.filter((r) => normalizeLookupText(r?.IAD_ieteikuma_tema) === targetTema);
+          if (temaMatches.length === 1) return temaMatches[0];
         }
         return null;
       }
@@ -912,7 +934,9 @@
         return true;
       }
 
-      function finishTableFocusHandled() {
+      function finishTableFocusHandled(force = false) {
+        if (!force && focusHandledRef.current) return;
+        focusHandledRef.current = true;
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
             if (typeof onFocusHandled === "function") onFocusHandled();
@@ -974,20 +998,22 @@
         if (!focusTask) return;
         const targetSub = String(focusTask?.submodule || "").trim().toLowerCase();
         if (targetSub && targetSub !== "iad") return;
+        focusHandledRef.current = false;
+        setPendingFocusTask(focusTask);
         setSubmod("iad");
       }, [focusTask]);
 
       useEffect(() => {
-        if (!focusTask) return;
-        const targetSub = String(focusTask?.submodule || "").trim().toLowerCase();
+        if (!pendingFocusTask) return;
+        const targetSub = String(pendingFocusTask?.submodule || "").trim().toLowerCase();
         if (targetSub && targetSub !== "iad") return;
         const focusSig = JSON.stringify({
-          submodule: focusTask?.submodule ?? "",
-          listKey: focusTask?.listKey ?? "",
-          rowId: focusTask?.rowId ?? "",
-          rowNumurs: focusTask?.rowNumurs ?? focusTask?.subtitle ?? "",
-          rowNosaukums: focusTask?.rowNosaukums ?? focusTask?.title ?? "",
-          key: focusTask?.key ?? "",
+          submodule: pendingFocusTask?.submodule ?? "",
+          listKey: pendingFocusTask?.listKey ?? "",
+          rowId: pendingFocusTask?.rowId ?? "",
+          rowNumurs: pendingFocusTask?.rowNumurs ?? pendingFocusTask?.subtitle ?? "",
+          rowNosaukums: pendingFocusTask?.rowNosaukums ?? pendingFocusTask?.title ?? "",
+          key: pendingFocusTask?.key ?? "",
         });
         if (focusRetryRef.current.sig !== focusSig) {
           focusRetryRef.current = { sig: focusSig, retries: 0 };
@@ -999,17 +1025,18 @@
           }
           return;
         }
-        const targetListKey = String(focusTask?.listKey ?? "").trim().toLowerCase();
+        const targetListKey = String(pendingFocusTask?.listKey ?? "").trim().toLowerCase();
         if (targetListKey === "current" || targetListKey === "done") {
           setSubmod("iad");
           if (targetListKey === "current") setOpenCurrent(true);
           if (targetListKey === "done") setOpenDone(true);
           setCardOpen(null);
           setEditMode(false);
-          finishTableFocusHandled();
+          setPendingFocusTask(null);
+          setTimeout(() => finishTableFocusHandled(true), 80);
           return;
         }
-        const hit = findRowForTableFocus(focusTask, rows);
+        const hit = findRowForTableFocus(pendingFocusTask, rows);
         if (!hit) {
           if (useDb && focusRetryRef.current.retries < 2) {
             focusRetryRef.current.retries += 1;
@@ -1020,7 +1047,8 @@
           setOpenCurrent(true);
           setOpenDone(true);
           setErr("Uzdevumu nevarēja automātiski atrast tabulā. Pārbaudi, vai DB ierakstam ir IaD numurs un nosaukums.");
-          finishTableFocusHandled();
+          setPendingFocusTask(null);
+          finishTableFocusHandled(true);
           return;
         }
         setSubmod("iad");
@@ -1029,9 +1057,9 @@
         setCardOpen(null);
         setEditMode(false);
         setFocusedRowKey(rowFocusKey(hit));
+        setPendingFocusTask(null);
         focusRetryRef.current = { sig: "", retries: 0 };
-        finishTableFocusHandled();
-      }, [focusTask, rows, onFocusHandled]);
+      }, [pendingFocusTask, rows, onFocusHandled]);
 
       useEffect(() => {
         if (!focusedRowKey) return;
@@ -1040,9 +1068,13 @@
         let tries = 0;
         const run = () => {
           if (cancelled) return;
-          if (scrollIadRowIntoViewSafe(safeId)) return;
+          if (scrollIadRowIntoViewSafe(safeId)) {
+            finishTableFocusHandled(true);
+            return;
+          }
           tries += 1;
           if (tries < 28) setTimeout(run, 100);
+          else finishTableFocusHandled(true);
         };
         run();
         const t = setTimeout(() => setFocusedRowKey(""), 6000);
@@ -1066,6 +1098,7 @@
         setDraft({
           IAD_numurs: row.IAD_numurs || "",
           IAD_nosaukums: row.IAD_nosaukums || "",
+          IAD_ieteikuma_tema: row.IAD_ieteikuma_tema || "",
           IAD_termins: toDateInputValue(row.IAD_termins),
           Atbildigais: joinNameList(parseNameList(row.Atbildigais)),
           IAD_statuss: statusLabel(row.IAD_statuss || "Aktīvs"),
@@ -1213,6 +1246,7 @@
         const cols = [
           ["IAD_numurs", "IaD numurs"],
           ["IAD_nosaukums", "IaD nosaukums"],
+          ["IAD_ieteikuma_tema", "IaD ieteikuma tēma (īss apraksts)"],
           ["IAD_termins", "IaD ieteikuma termiņš"],
           ["Atbildigais", "Atbildīgais"],
           ["Lidzatbildigais", "Līdzatbildīgais"],
@@ -1317,6 +1351,7 @@
           "id",
           "IAD_numurs",
           "IAD_nosaukums",
+          "IAD_ieteikuma_tema",
           "IAD_termins",
           "Atbildigais",
           "Lidzatbildigais",
@@ -1440,6 +1475,7 @@
                 <tr>
                   <th>IaD numurs</th>
                   <th>IaD nosaukums</th>
+                  <th>IaD ieteikuma tēma (īss apraksts)</th>
                   <th>IaD ieteikuma termiņš</th>
                   <th>Atbildīgais</th>
                   <th>IaD statuss</th>
@@ -1458,6 +1494,7 @@
                         <tr id=${rowId} key=${String(r?.id ?? `${r.IAD_numurs}-${r.IAD_nosaukums}`)} class=${isFocused ? "iad-row-focus" : ""}>
                           <td>${r.IAD_numurs || "—"}</td>
                           <td>${r.IAD_nosaukums || "—"}</td>
+                          <td>${r.IAD_ieteikuma_tema || "—"}</td>
                           <td>${displayDate(r.IAD_termins)}</td>
                           <td>${joinNameList(parseNameList(r.Atbildigais)) || "—"}</td>
                           <td>
@@ -1473,7 +1510,7 @@
                         </tr>
                       `;
                     })
-                  : html`<tr><td colspan="6" class="iad-empty">${emptyText}</td></tr>`}
+                  : html`<tr><td colspan="7" class="iad-empty">${emptyText}</td></tr>`}
               </tbody>
             </table>
           </div>
@@ -1639,6 +1676,7 @@
                                   />
                                 </div>
                               </div>
+                              ${renderCardInput("IaD ieteikuma tēma (īss apraksts)", "IAD_ieteikuma_tema")}
                               ${renderCardInput("IaD ieteikuma termiņš", "IAD_termins", { type: "date" })}
                               <div class="iad-kv">
                                 <strong>IaD statuss</strong>

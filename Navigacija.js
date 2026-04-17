@@ -74,9 +74,24 @@
         list-style: none;
         cursor: pointer;
         user-select: none;
+        position: relative;
+        padding-right: 1.1rem;
       }
       .app-nav-accordion-summary::-webkit-details-marker {
         display: none;
+      }
+      .app-nav-accordion-summary::after {
+        content: "▸";
+        position: absolute;
+        right: 0.2rem;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 0.76rem;
+        color: var(--muted);
+        transition: transform 0.15s ease;
+      }
+      .app-nav-accordion[open] > .app-nav-accordion-summary::after {
+        transform: translateY(-50%) rotate(90deg);
       }
       @media (max-width: 720px) {
         .app-nav-vesture-details {
@@ -88,9 +103,24 @@
         cursor: pointer;
         user-select: none;
         font-weight: 400;
+        position: relative;
+        padding-right: 1.1rem;
       }
       .app-nav-vesture-summary::-webkit-details-marker {
         display: none;
+      }
+      .app-nav-vesture-summary::after {
+        content: "▸";
+        position: absolute;
+        right: 0.2rem;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 0.76rem;
+        color: var(--muted);
+        transition: transform 0.15s ease;
+      }
+      .app-nav-vesture-details[open] > .app-nav-vesture-summary::after {
+        transform: translateY(-50%) rotate(90deg);
       }
       .app-nav-vesture-details .app-nav-sub {
         margin-top: 0.2rem;
@@ -217,9 +247,12 @@
       children,
     }) {
       ensureNavigacijaExtraStyles();
-      const historyNavOpen =
-        view === "prombutnes" || view === "home" || view === "aktualitatesHistory" || view === "pddAppChanges" || view === "team" || view === "darbaUzdevumiIad";
       const darbaUzdevumiNavOpen = view === "darbaUzdevumiIad";
+      const vestureAccordionOpen =
+        Boolean(showPddAppChangesBadge) ||
+        view === "aktualitatesHistory" ||
+        view === "pddAppChanges" ||
+        (view === "prombutnes" && promSub === "changes");
       const showBack = Boolean(canGoBack && typeof onGoBack === "function");
 
       return html`
@@ -341,40 +374,36 @@
                   </button>
                 </div>
               </details>
-              ${historyNavOpen
-                ? html`
-                    <details class="app-nav-vesture-details">
-                      <summary class="app-nav-link app-nav-vesture-summary">Vēsture</summary>
-                      <div class="app-nav-sub" role="group" aria-label="Vēstures apakšsadaļas">
-                        <button
-                          type="button"
-                          class=${`app-nav-sublink ${view === "prombutnes" && promSub === "changes" ? "active" : ""}`}
-                          onClick=${() => {
-                            onChangeView("prombutnes");
-                            onPromSubChange("changes");
-                          }}
-                        >
-                          Auditācijas vēsture
-                        </button>
-                        <button
-                          type="button"
-                          class=${`app-nav-sublink ${view === "aktualitatesHistory" ? "active" : ""}`}
-                          onClick=${() => onChangeView("aktualitatesHistory")}
-                        >
-                          Aktualitāšu vēsture
-                        </button>
-                        <button
-                          type="button"
-                          class=${`app-nav-sublink ${view === "pddAppChanges" ? "active" : ""}`}
-                          onClick=${() => onChangeView("pddAppChanges")}
-                        >
-                          Izmaiņas PDD aplikācijā
-                          ${showPddAppChangesBadge ? html`<span class="app-nav-badge-new">NEW</span>` : null}
-                        </button>
-                      </div>
-                    </details>
-                  `
-                : null}
+              <details class="app-nav-vesture-details" open=${vestureAccordionOpen}>
+                <summary class="app-nav-link app-nav-vesture-summary">Vēsture</summary>
+                <div class="app-nav-sub" role="group" aria-label="Vēstures apakšsadaļas">
+                  <button
+                    type="button"
+                    class=${`app-nav-sublink ${view === "prombutnes" && promSub === "changes" ? "active" : ""}`}
+                    onClick=${() => {
+                      onChangeView("prombutnes");
+                      onPromSubChange("changes");
+                    }}
+                  >
+                    Auditācijas vēsture
+                  </button>
+                  <button
+                    type="button"
+                    class=${`app-nav-sublink ${view === "aktualitatesHistory" ? "active" : ""}`}
+                    onClick=${() => onChangeView("aktualitatesHistory")}
+                  >
+                    Aktualitāšu vēsture
+                  </button>
+                  <button
+                    type="button"
+                    class=${`app-nav-sublink ${view === "pddAppChanges" ? "active" : ""}`}
+                    onClick=${() => onChangeView("pddAppChanges")}
+                  >
+                    Izmaiņas PDD aplikācijā
+                    ${showPddAppChangesBadge ? html`<span class="app-nav-badge-new">NEW</span>` : null}
+                  </button>
+                </div>
+              </details>
             </div>
           </aside>
           <div class="app-main">

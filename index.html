@@ -439,11 +439,11 @@
 
       <!-- Lokālie dati + ziņas komandai (bez Supabase/API) -->
       <script src="./Komanda.js?v=20260413"></script>
-      <script src="./IAD.js?v=20260431"></script>
+      <script src="./IAD.js?v=20260434"></script>
       <script src="./supabase/migrations/izmainas.js?v=20260413"></script>
       <script src="./Sodien.js?v=20260420"></script>
       <script src="./Kalendars.js?v=20260410"></script>
-      <script src="./Navigacija.js?v=20260421"></script>
+      <script src="./Navigacija.js?v=20260422"></script>
       <script src="./Filtr.js?v=20260407"></script>
       <script src="./Saskaņošana.js?v=20260407"></script>
       <script src="./Prombutnes_vesture.js?v=20260407"></script>
@@ -7019,15 +7019,17 @@
                     onOpenTodayTask=${(task) => {
                       setNavPast((p) => [...p, { view, promSub }]);
                       const target = task?.target && typeof task.target === "object" ? task.target : {};
-                      setDarbaUzdevumiFocus({
+                      const payload = {
                         ...target,
                         key: task?.key ?? target?.key ?? "",
                         module: task?.module ?? target?.module ?? "",
                         title: task?.title ?? target?.title ?? "",
+                        topic: task?.topic ?? target?.topic ?? "",
                         subtitle: task?.subtitle ?? target?.subtitle ?? "",
                         dueDate: task?.dueDate ?? target?.dueDate ?? "",
-                      });
+                      };
                       setView("darbaUzdevumiIad");
+                      queueMicrotask(() => setDarbaUzdevumiFocus(payload));
                     }}
                     absencesToday=${homeAbsencesSnapshot}
                   />`
