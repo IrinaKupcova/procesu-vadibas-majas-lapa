@@ -439,7 +439,7 @@
 
       <!-- Lokālie dati + ziņas komandai (bez Supabase/API) -->
       <script src="./Komanda.js?v=20260413"></script>
-      <script src="./IAD.js?v=20260428"></script>
+      <script src="./IAD.js?v=20260431"></script>
       <script src="./supabase/migrations/izmainas.js?v=20260413"></script>
       <script src="./Sodien.js?v=20260420"></script>
       <script src="./Kalendars.js?v=20260410"></script>
@@ -7018,7 +7018,15 @@
                     }}
                     onOpenTodayTask=${(task) => {
                       setNavPast((p) => [...p, { view, promSub }]);
-                      setDarbaUzdevumiFocus(task?.target ?? null);
+                      const target = task?.target && typeof task.target === "object" ? task.target : {};
+                      setDarbaUzdevumiFocus({
+                        ...target,
+                        key: task?.key ?? target?.key ?? "",
+                        module: task?.module ?? target?.module ?? "",
+                        title: task?.title ?? target?.title ?? "",
+                        subtitle: task?.subtitle ?? target?.subtitle ?? "",
+                        dueDate: task?.dueDate ?? target?.dueDate ?? "",
+                      });
                       setView("darbaUzdevumiIad");
                     }}
                     absencesToday=${homeAbsencesSnapshot}

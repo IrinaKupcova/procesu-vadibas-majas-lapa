@@ -12,7 +12,7 @@
     nosaukums: ["IAD_nosaukums", "iad_nosaukums", "IAD nosaukums", "nosaukums"],
     termins: ["IAD_termins", "iad_termins", "IAD_ieteikuma_termins", "Termins", "termins"],
     atbildigais: ["Atbildīgais", "Atbildigais", "atbildīgais", "atbildigais"],
-    statuss: ["IAD_statuss", "iad_statuss", "Statuss", "statuss", "IAD statuss"],
+    statuss: ["IAD_statuss", "iad_statuss", "Statuss", "statuss", "IAD statuss", "Izpildes_statuss", "Izpildes statuss"],
     datums: ["IAD_datums", "iad_datums", "IaD datums", "datums"],
     lidzatbildigais: ["Līdzatbildīgais", "Lidzatbildigais", "līdzatbildīgais", "lidzatbildigais"],
     kompetencesUzdevums: ["IAD_PDD_komp_uzdevums", "iad_pdd_komp_uzdevums", "IAD_PDD_kompetences_uzdevums", "IAD PDD komp uzdevums"],
@@ -39,7 +39,7 @@
 
   let runtimeCols = { ...WRITE_DEFAULT };
   let runtimeIdCol = "id";
-  const ID_COLUMN_CANDIDATES = ["id", "ID", "Id", "iad_id", "IAD_id", "IAD.id"];
+  const ID_COLUMN_CANDIDATES = ["id", "ID", "Id", "iad_id", "IAD_id", "IAD_ID", "IAD.id"];
   let resolvedIadTable = null;
   let runtimeColsProbed = false;
 
@@ -111,7 +111,7 @@
       const found = await probeExistingColumn(sb, table, aliases);
       if (found) next[key] = found;
     }
-    const idFound = await probeExistingColumn(sb, table, ["id", "ID", "Id", "iad_id", "IAD_id"]);
+    const idFound = await probeExistingColumn(sb, table, ["id", "ID", "Id", "iad_id", "IAD_id", "IAD_ID", "IAD.id"]);
     if (idFound) runtimeIdCol = idFound;
     runtimeCols = next;
     runtimeColsProbed = true;
@@ -120,6 +120,15 @@
   function toStr(v, maxLen) {
     const s = String(v ?? "").trim();
     return typeof maxLen === "number" ? s.slice(0, maxLen) : s;
+  }
+
+  function normalizeLookupText(v) {
+    return String(v ?? "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
   }
 
   function statusLabel(v) {
@@ -317,13 +326,13 @@
     resolve("planotasAktivitates", IAD_ALIAS.planotasAktivitates);
     resolve("piezimes", IAD_ALIAS.piezimes);
     resolve("pielikumi", IAD_ALIAS.pielikumi);
-    const idAliases = ["id", "ID", "Id", "iad_id", "IAD_id", "IAD.id"];
+    const idAliases = ["id", "ID", "Id", "iad_id", "IAD_id", "IAD_ID", "IAD.id"];
     const idFound = keys.find((k) => idAliases.some((a) => String(a).toLowerCase() === String(k).toLowerCase()));
     if (idFound && !String(idFound).includes(".")) runtimeIdCol = idFound;
   }
 
   function rowIdValue(r) {
-    return pickByAliases(r, ["id", "ID", "Id", "iad_id", "IAD_id", "IAD.id"], null);
+    return pickByAliases(r, ["id", "ID", "Id", "iad_id", "IAD_id", "IAD_ID", "IAD.id"], null);
   }
 
   function normalizeIadRow(r) {
@@ -821,7 +830,7 @@
   }
 
   function createIadModule(html, React) {
-    const { useEffect, useState } = React;
+    const { useEffect, useRef, useState } = React;
 
     return function DarbaUzdevumiPanel({ supabase: supabaseProp, focusTask, onFocusHandled, pinnedListKeys, onPinListChange }) {
       ensureStyles();
@@ -844,6 +853,7 @@
       const [editingSourceRow, setEditingSourceRow] = useState(null);
       const [draft, setDraft] = useState(emptyDraft());
       const [teamOptions, setTeamOptions] = useState([]);
+      const focusRetryRef = useRef({ sig: "", retries: 0 });
 
       const activeRows = rows.filter((r) => !isInactiveStatus(r.IAD_statuss));
       const inactiveRows = rows.filter((r) => isInactiveStatus(r.IAD_statuss));
@@ -852,6 +862,62 @@
         const idPart = String(row?.id ?? "").trim();
         if (idPart) return `id:${idPart}`;
         return `k:${String(row?.IAD_numurs ?? "").trim().toLowerCase()}|${String(row?.IAD_nosaukums ?? "").trim().toLowerCase()}`;
+      }
+
+      function taskRowKey(row) {
+        const idPart = String(row?.id ?? "").trim();
+        if (idPart) return `iad:${idPart}`;
+        const num = String(row?.IAD_numurs ?? "").trim();
+        const title = String(row?.IAD_nosaukums ?? "").trim();
+        return `iad:${num || title}`;
+      }
+
+      function findRowForTableFocus(ft, list) {
+        const src = Array.isArray(list) ? list : [];
+        const targetKey = String(ft?.key ?? "").trim();
+        const targetId = String(ft?.rowId ?? "").trim();
+        const targetNum = normalizeLookupText(ft?.rowNumurs ?? ft?.subtitle ?? "");
+        const targetTitle = normalizeLookupText(ft?.rowNosaukums ?? ft?.title ?? "");
+        let hit =
+          src.find((r) => targetKey && taskRowKey(r) === targetKey) ||
+          src.find((r) => targetId && String(r?.id ?? "").trim() === targetId) ||
+          src.find((r) => targetId && String(rowIdValue(r) ?? "").trim() === targetId);
+        if (hit) return hit;
+        if (targetNum && targetTitle) {
+          hit = src.find(
+            (r) =>
+              normalizeLookupText(r?.IAD_numurs) === targetNum && normalizeLookupText(r?.IAD_nosaukums) === targetTitle
+          );
+          if (hit) return hit;
+        }
+        if (targetTitle) {
+          const matches = src.filter((r) => normalizeLookupText(r?.IAD_nosaukums) === targetTitle);
+          if (matches.length === 1) return matches[0];
+        }
+        return null;
+      }
+
+      function scrollIadRowIntoViewSafe(safeDomId) {
+        const el = document.getElementById(safeDomId);
+        if (!el) return false;
+        const wrap = el.closest(".iad-table-wrap");
+        if (wrap) {
+          const rowTop = el.offsetTop;
+          wrap.scrollTo({
+            top: Math.max(0, rowTop - wrap.clientHeight / 2 + el.offsetHeight / 2),
+            behavior: "smooth",
+          });
+        }
+        el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        return true;
+      }
+
+      function finishTableFocusHandled() {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (typeof onFocusHandled === "function") onFocusHandled();
+          });
+        });
       }
 
       async function refresh() {
@@ -905,50 +971,86 @@
       }, [submod, editMode, supabase]);
 
       useEffect(() => {
-        if (!focusTask || !rows.length) return;
+        if (!focusTask) return;
         const targetSub = String(focusTask?.submodule || "").trim().toLowerCase();
-        const targetId = String(focusTask?.rowId ?? "").trim();
-        const targetListKey = String(focusTask?.listKey ?? "").trim().toLowerCase();
-        const targetNumurs = String(focusTask?.rowNumurs ?? focusTask?.subtitle ?? "").trim().toLowerCase();
-        const targetNosaukums = String(focusTask?.rowNosaukums ?? focusTask?.title ?? "").trim().toLowerCase();
         if (targetSub && targetSub !== "iad") return;
+        setSubmod("iad");
+      }, [focusTask]);
+
+      useEffect(() => {
+        if (!focusTask) return;
+        const targetSub = String(focusTask?.submodule || "").trim().toLowerCase();
+        if (targetSub && targetSub !== "iad") return;
+        const focusSig = JSON.stringify({
+          submodule: focusTask?.submodule ?? "",
+          listKey: focusTask?.listKey ?? "",
+          rowId: focusTask?.rowId ?? "",
+          rowNumurs: focusTask?.rowNumurs ?? focusTask?.subtitle ?? "",
+          rowNosaukums: focusTask?.rowNosaukums ?? focusTask?.title ?? "",
+          key: focusTask?.key ?? "",
+        });
+        if (focusRetryRef.current.sig !== focusSig) {
+          focusRetryRef.current = { sig: focusSig, retries: 0 };
+        }
+        if (!rows.length) {
+          if (useDb && focusRetryRef.current.retries < 1) {
+            focusRetryRef.current.retries += 1;
+            void refresh();
+          }
+          return;
+        }
+        const targetListKey = String(focusTask?.listKey ?? "").trim().toLowerCase();
         if (targetListKey === "current" || targetListKey === "done") {
           setSubmod("iad");
           if (targetListKey === "current") setOpenCurrent(true);
           if (targetListKey === "done") setOpenDone(true);
           setCardOpen(null);
           setEditMode(false);
-          if (typeof onFocusHandled === "function") onFocusHandled();
+          finishTableFocusHandled();
           return;
         }
-        const hit =
-          rows.find((r) => targetId && String(r?.id ?? "").trim() === targetId) ||
-          rows.find(
-            (r) =>
-              (!targetId || !String(r?.id ?? "").trim()) &&
-              targetNumurs &&
-              targetNosaukums &&
-              String(r?.IAD_numurs ?? "").trim().toLowerCase() === targetNumurs &&
-              String(r?.IAD_nosaukums ?? "").trim().toLowerCase() === targetNosaukums
-          );
-        if (!hit) return;
+        const hit = findRowForTableFocus(focusTask, rows);
+        if (!hit) {
+          if (useDb && focusRetryRef.current.retries < 2) {
+            focusRetryRef.current.retries += 1;
+            void refresh();
+            return;
+          }
+          setSubmod("iad");
+          setOpenCurrent(true);
+          setOpenDone(true);
+          setErr("Uzdevumu nevarēja automātiski atrast tabulā. Pārbaudi, vai DB ierakstam ir IaD numurs un nosaukums.");
+          finishTableFocusHandled();
+          return;
+        }
         setSubmod("iad");
         if (isInactiveStatus(hit?.IAD_statuss)) setOpenDone(true);
         else setOpenCurrent(true);
         setCardOpen(null);
         setEditMode(false);
         setFocusedRowKey(rowFocusKey(hit));
-        if (typeof onFocusHandled === "function") onFocusHandled();
+        focusRetryRef.current = { sig: "", retries: 0 };
+        finishTableFocusHandled();
       }, [focusTask, rows, onFocusHandled]);
 
       useEffect(() => {
         if (!focusedRowKey) return;
         const safeId = `iad-row-${focusedRowKey.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
-        const el = document.getElementById(safeId);
-        if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-        const t = setTimeout(() => setFocusedRowKey(""), 4500);
-        return () => clearTimeout(t);
-      }, [focusedRowKey]);
+        let cancelled = false;
+        let tries = 0;
+        const run = () => {
+          if (cancelled) return;
+          if (scrollIadRowIntoViewSafe(safeId)) return;
+          tries += 1;
+          if (tries < 28) setTimeout(run, 100);
+        };
+        run();
+        const t = setTimeout(() => setFocusedRowKey(""), 6000);
+        return () => {
+          cancelled = true;
+          clearTimeout(t);
+        };
+      }, [focusedRowKey, openCurrent, openDone, submod]);
 
       function startCreate() {
         setEditingId(null);
