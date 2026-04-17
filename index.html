@@ -4863,7 +4863,15 @@
           const [periodMode, setPeriodMode] = useState("all"); // 'month' | 'all' | 'range'
           const [periodFrom, setPeriodFrom] = useState("");
           const [periodTo, setPeriodTo] = useState("");
-          const [form, setForm] = useState({ type_id: "", start_date: "", end_date: "", comment: "" });
+          const [form, setForm] = useState({
+            type_id: "",
+            start_date: "",
+            end_date: "",
+            all_day: true,
+            from_time: "09:00",
+            to_time: "17:00",
+            comment: "",
+          });
           const [filters, setFilters] = useState({
             name: "",
             type: "",
@@ -5064,6 +5072,12 @@
             if (isAdmin) return true;
             return isOwnAbsence(a);
           }
+          function normalizeEditTime(v) {
+            const s = String(v ?? "").trim();
+            const m = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(s);
+            if (!m) return "";
+            return `${String(m[1]).padStart(2, "0")}:${String(m[2]).padStart(2, "0")}`;
+          }
           const anyActions = filteredList.some((a) => {
             const canEdit = canEditAbsence(a);
             const canDelete = canDeleteAbsence(a);
@@ -5090,10 +5104,16 @@
               return;
             }
             setEditing(a.id);
+            const fromTime = normalizeEditTime(a?.laiks_no ?? a?.Laiks_no);
+            const toTime = normalizeEditTime(a?.laiks_lidz ?? a?.Laiks_lidz);
+            const allDay = !(fromTime || toTime);
             setForm({
               type_id: String(a.type_id),
               start_date: a.start_date,
               end_date: a.end_date,
+              all_day: allDay,
+              from_time: fromTime || "09:00",
+              to_time: toTime || "17:00",
               comment: a.comment || "",
             });
           }
@@ -5117,6 +5137,8 @@
               return;
             }
             const editId = editedRow.id;
+            const editFromTime = form.all_day ? null : normalizeEditTime(form.from_time) || null;
+            const editToTime = form.all_day ? null : normalizeEditTime(form.to_time) || null;
             if (isLocalMode()) {
               const rows = getLocalAbsences().map((r) =>
                 String(r.id) === String(editId)
@@ -5125,6 +5147,8 @@
                       type_id: Number(form.type_id),
                       start_date: form.start_date,
                       end_date: form.end_date,
+                      laiks_no: editFromTime,
+                      laiks_lidz: editToTime,
                       comment: form.comment.trim() || null,
                     }
                   : r
@@ -5151,13 +5175,25 @@
                 [ABSENCE_COLS_RUNTIME.type_id]: typeForPayload,
                 [ABSENCE_COLS_RUNTIME.start_date]: form.start_date,
                 [ABSENCE_COLS_RUNTIME.end_date]: form.end_date,
+                [ABSENCE_COLS_RUNTIME.laiks_no]: editFromTime,
+                [ABSENCE_COLS_RUNTIME.laiks_lidz]: editToTime,
                 [ABSENCE_COLS_RUNTIME.comment]: form.comment.trim() || null,
               },
               {
                 type: typeForPayload,
                 Sakuma_datums: form.start_date,
                 Beigu_datums: form.end_date,
+                Laiks_no: editFromTime,
+                Laiks_lidz: editToTime,
                 Komentārs: form.comment.trim() || null,
+              },
+              {
+                type: typeForPayload,
+                "Sākuma datums": form.start_date,
+                "Beigu datums": form.end_date,
+                "Laiks no": editFromTime,
+                "Laiks līdz": editToTime,
+                "Komentāri": form.comment.trim() || null,
               },
             ];
             const noRowMsg = "Rinda netika izmainīta (RLS vai neatbilstošas kolonnas).";
@@ -5939,6 +5975,52 @@
                               />
                             </div>
                           </div>
+                          <div class="field" style=${{ marginTop: "-0.1rem", display: "grid", gap: "0.35rem" }}>
+                            <label style=${{ display: "flex", alignItems: "center", gap: "0.55rem" }}>
+                              <input
+                                type="checkbox"
+                                checked=${form.all_day}
+                                onChange=${(ev) => {
+                                  if (Boolean(ev.target.checked)) setForm((f) => ({ ...f, all_day: true }));
+                                }}
+                              />
+                              Visa diena
+                            </label>
+                            <label style=${{ display: "flex", alignItems: "center", gap: "0.55rem" }}>
+                              <input
+                                type="checkbox"
+                                checked=${!form.all_day}
+                                onChange=${(ev) => setForm((f) => ({ ...f, all_day: !Boolean(ev.target.checked) }))}
+                              />
+                              Laika periods
+                            </label>
+                          </div>
+                          ${form.all_day
+                            ? null
+                            : html`
+                                <div class="row" style=${{ gap: "0.75rem" }}>
+                                  <div class="field" style=${{ flex: 1 }}>
+                                    <label>Laiks no</label>
+                                    <input
+                                      type="time"
+                                      class="input"
+                                      required
+                                      value=${form.from_time}
+                                      onChange=${(ev) => setForm((f) => ({ ...f, from_time: ev.target.value }))}
+                                    />
+                                  </div>
+                                  <div class="field" style=${{ flex: 1 }}>
+                                    <label>Laiks līdz</label>
+                                    <input
+                                      type="time"
+                                      class="input"
+                                      required
+                                      value=${form.to_time}
+                                      onChange=${(ev) => setForm((f) => ({ ...f, to_time: ev.target.value }))}
+                                    />
+                                  </div>
+                                </div>
+                              `}
                           <div class="field">
                             <label>Komentārs</label>
                             <textarea
