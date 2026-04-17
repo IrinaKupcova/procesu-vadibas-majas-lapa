@@ -3,6 +3,8 @@ const SODIEN_STORE_KEY = "pdd_sodien_aktualitates_v1";
 /** DB tabula (ASCII), kā Supabase kļūdziņā: „AKTUALITATES”. */
 const TABLE_AKTUALITATES = "AKTUALITATES";
 const AKTUALITATES_ATTACHMENTS_BUCKET = "pdd-aktualitates-files";
+const ATTACHMENT_WARNING_TEXT =
+  "Šobrīd aplikācija atrodas uz ārējā servera, tādēļ esi uzmanīgs ar darba informācijas publicēšanu! Spied OK, ja vēlies turpināt pielikuma pievienošanu.";
 
 const AKTUALITATES_NAME_CANDIDATES = [
   "AKTUALITATES",
@@ -550,7 +552,27 @@ function deleteSelectedImage() {
   });
 }
 
+function onBeforePickAttachment(ev) {
+  const ok = confirm(ATTACHMENT_WARNING_TEXT);
+  if (!ok) {
+    ev?.preventDefault?.();
+    ev?.stopPropagation?.();
+    if (ev?.target) ev.target.value = "";
+    return;
+  }
+  if (ev?.target?.dataset) ev.target.dataset.attachmentAllowed = "1";
+}
+
 function onPickAttachment(ev) {
+  const allowedByClick = String(ev?.target?.dataset?.attachmentAllowed || "") === "1";
+  if (!allowedByClick) {
+    const ok = confirm(ATTACHMENT_WARNING_TEXT);
+    if (!ok) {
+      if (ev?.target) ev.target.value = "";
+      return;
+    }
+  }
+  if (ev?.target?.dataset) ev.target.dataset.attachmentAllowed = "";
   const f = ev?.target?.files?.[0];
   if (!f) return;
   const sb = globalThis.__PDD_SUPABASE__;
@@ -1141,7 +1163,7 @@ function renderTodayInfo({
             </label>
             <label class="btn btn-ghost btn-small" style=${{ cursor: "pointer" }}>
               Pievienot pielikumu
-              <input type="file" style=${{ display: "none" }} onChange=${onPickAttachment} />
+              <input type="file" style=${{ display: "none" }} onClick=${onBeforePickAttachment} onChange=${onPickAttachment} />
             </label>
           </div>
           <div class="row" style=${{ gap: "0.35rem", flexWrap: "wrap" }}>

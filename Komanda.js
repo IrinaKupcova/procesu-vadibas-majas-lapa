@@ -241,11 +241,7 @@
   async function setUserAizvieto({ userId, replacementUserId = "", replacementName = "", syncDb = true }) {
     const uid = String(userId ?? "").trim();
     if (!uid) return { error: new Error("Trūkst userId.") };
-    const actorId = String(globalThis.__PDD_SESSION_USER_ID__ ?? sessionStorage.getItem(LS_LOCAL_USER_ID) ?? LOCAL_USER_ID).trim();
     const actorRole = String(globalThis.__PDD_ACTOR_ROLE__ ?? getCurrentLocalActor().role ?? "").trim().toLowerCase();
-    if (actorRole !== "admin" && actorId !== uid) {
-      return { error: new Error("Aizvietotāju drīkst mainīt tikai admin vai pats lietotājs.") };
-    }
 
     const users = loadTeamUsers();
     const i = users.findIndex((u) => String(u.id) === uid);

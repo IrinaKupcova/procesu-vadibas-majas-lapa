@@ -438,10 +438,10 @@
       <div id="root"></div>
 
       <!-- Lokālie dati + ziņas komandai (bez Supabase/API) -->
-      <script src="./Komanda.js?v=20260413"></script>
-      <script src="./IAD.js?v=20260440"></script>
+      <script src="./Komanda.js?v=20260422"></script>
+      <script src="./IAD.js?v=20260443"></script>
       <script src="./supabase/migrations/izmainas.js?v=20260413"></script>
-      <script src="./Sodien.js?v=20260420"></script>
+      <script src="./Sodien.js?v=20260421"></script>
       <script src="./Kalendars.js?v=20260410"></script>
       <script src="./Navigacija.js?v=20260422"></script>
       <script src="./Filtr.js?v=20260407"></script>
@@ -3625,14 +3625,24 @@
 
                 ${typeId
                   ? html`
-                      <div class="field" style=${{ marginTop: "-0.15rem" }}>
+                      <div class="field" style=${{ marginTop: "-0.15rem", display: "grid", gap: "0.4rem" }}>
                         <label style=${{ display: "flex", alignItems: "center", gap: "0.55rem" }}>
                           <input
                             type="checkbox"
                             checked=${citsAllDay}
-                            onChange=${(ev) => setCitsAllDay(Boolean(ev.target.checked))}
+                            onChange=${(ev) => {
+                              if (Boolean(ev.target.checked)) setCitsAllDay(true);
+                            }}
                           />
                           Visa diena
+                        </label>
+                        <label style=${{ display: "flex", alignItems: "center", gap: "0.55rem" }}>
+                          <input
+                            type="checkbox"
+                            checked=${!citsAllDay}
+                            onChange=${(ev) => setCitsAllDay(!Boolean(ev.target.checked))}
+                          />
+                          Laika periods
                         </label>
                       </div>
                       ${citsAllDay
@@ -3954,7 +3964,7 @@
                             ${cols.map((key) => {
                               if (key === COL_USER_AIZVIETO) {
                                 const uid = String(u?.id ?? "").trim();
-                                const canEditAizvieto = Boolean(canAdmin || String(currentUserId ?? "") === uid);
+                                const canEditAizvieto = true;
                                 const draftVal = String(aizvietoDraft?.[uid] ?? "").trim();
                                 const options = (window.KOMANDA?.getReplacementOptions?.(uid) ?? [])
                                   .filter((x) => String(x?.name ?? "").trim())
@@ -5320,9 +5330,8 @@
             <div class="list-panel" id="prombutnes-history-anchor">
               <div
                 class="row"
-                style=${{ justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "0.5rem" }}
+                style=${{ justifyContent: "flex-end", alignItems: "flex-start", flexWrap: "wrap", gap: "0.5rem" }}
               >
-                <h2 style=${{ margin: 0, fontSize: "1rem" }}>Prombūtnes vēsture</h2>
                 <div class="row" style=${{ gap: "0.35rem", flexWrap: "wrap" }}>
                   ${highlightAbsenceId
                     ? html`
@@ -5402,10 +5411,6 @@
                   <!-- (nav) -->
                 </div>
               </div>
-              <p style=${{ margin: "0.35rem 0 0.65rem", fontSize: "0.78rem", color: "var(--muted)", lineHeight: 1.4 }}>
-                Kolonnas atbilst <code>public.prombutnes_dati</code> (ierakstu rindas var paslēpt — redzamas paliek
-                tabulas galvenes).
-              </p>
               <div class="hist-table-wrap table-wrap">
                 <table class="hist-table">
                   <thead>
@@ -6996,12 +7001,7 @@
                     ? html`<${IadPanel}
                         supabase=${supabase}
                         focusTask=${darbaUzdevumiFocus}
-                        onFocusHandled=${() => {
-                          setTimeout(() => {
-                            if (globalThis.__PDD_IAD_OPEN_TARGET__) return;
-                            setDarbaUzdevumiFocus(null);
-                          }, 700);
-                        }}
+                        onFocusHandled=${() => {}}
                         pinnedListKeys=${iadPinnedListKeys}
                         onPinListChange=${handleIadListPinChange}
                       />`

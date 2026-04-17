@@ -6,6 +6,8 @@
   const LS_IAD_KEY = "pdd_iad_ieteikumi_v2";
   const LS_IAD_UI_KEY = "pdd_iad_ui_v1";
   const TABLE_IAD_CANDIDATES = ["IAD", "iad", "Iad"];
+  const ATTACHMENT_WARNING_TEXT =
+    "Šobrīd aplikācija atrodas uz ārējā servera, tādēļ esi uzmanīgs ar darba informācijas publicēšanu! Spied OK, ja vēlies turpināt pielikuma pievienošanu.";
 
   const IAD_ALIAS = {
     numurs: ["IAD_numurs", "iad_numurs", "IAD numurs", "numurs", "Nr", "nr"],
@@ -248,6 +250,11 @@
     return `${String(item?.name ?? "").trim()} (${kb} KB)`;
   }
 
+  function isExternalAttachmentLink(item) {
+    const href = String(item?.dataUrl ?? "").trim();
+    return /^https?:\/\//i.test(href);
+  }
+
   function listTeamOptions() {
     try {
       const rows = globalThis.KOMANDA?.loadTeamUsers?.() ?? [];
@@ -301,22 +308,22 @@
       Termins: "IaD ieteikuma termiņš",
       Atbildigais: "Atbildīgais",
       "Atbildīgais": "Atbildīgais",
-      IAD_statuss: "IaD statuss",
-      Statuss: "IaD statuss",
+      IAD_statuss: "IaD ieteikuma statuss",
+      Statuss: "IaD ieteikuma statuss",
       IAD_datums: "IaD datums",
       datums: "IaD datums",
       Lidzatbildigais: "Līdzatbildīgais",
       "Līdzatbildīgais": "Līdzatbildīgais",
-      IAD_PDD_komp_uzdevums: "IaD PDD kompetences uzdevums",
-      IAD_PDD_kompetences_uzdevums: "IaD PDD kompetences uzdevums",
-      "IAD PDD komp uzdevums": "IaD PDD kompetences uzdevums",
+      IAD_PDD_komp_uzdevums: "PDD kompetences uzdevums",
+      IAD_PDD_kompetences_uzdevums: "PDD kompetences uzdevums",
+      "IAD PDD komp uzdevums": "PDD kompetences uzdevums",
       Starptermins: "Starptermiņš",
       "Starptermiņš": "Starptermiņš",
       Planotas_aktivitates: "Plānotās aktivitātes",
       "Plānotās_aktivitātes": "Plānotās aktivitātes",
       "Planotas aktivitates": "Plānotās aktivitātes",
-      Piezimes: "Piezīmes",
-      "Piezīmes": "Piezīmes",
+      Piezimes: "Izpildes informācija",
+      "Piezīmes": "Izpildes informācija",
       Pielikumi: "Pielikumi",
       Pielikumi_json: "Pielikumi",
       created_at: "Izveidots",
@@ -966,6 +973,7 @@
       const [editingSourceRow, setEditingSourceRow] = useState(null);
       const [draft, setDraft] = useState(emptyDraft());
       const [teamOptions, setTeamOptions] = useState([]);
+      const [attachmentLinkDraft, setAttachmentLinkDraft] = useState("");
       const focusRetryRef = useRef({ sig: "", retries: 0 });
       const focusHandledRef = useRef(false);
       const [pendingFocusTask, setPendingFocusTask] = useState(null);
@@ -1346,6 +1354,7 @@
         setEditingId(null);
         setEditingSourceRow(null);
         setDraft(emptyDraft());
+        setAttachmentLinkDraft("");
         setEditMode(true);
         setCardOpen(null);
       }
@@ -1368,6 +1377,7 @@
           Piezimes: row.Piezimes || "",
           Pielikumi: parseAttachments(row.Pielikumi),
         });
+        setAttachmentLinkDraft("");
         setEditMode(true);
         setCardOpen(row ?? null);
       }
@@ -1382,6 +1392,7 @@
         setEditMode(false);
         setEditingId(null);
         setEditingSourceRow(null);
+        setAttachmentLinkDraft("");
       }
 
       function openIadModule() {
@@ -1455,7 +1466,27 @@
         });
       }
 
+      function onAttachmentInputClick(ev) {
+        const ok = confirm(ATTACHMENT_WARNING_TEXT);
+        if (!ok) {
+          ev?.preventDefault?.();
+          ev?.stopPropagation?.();
+          if (ev?.target) ev.target.value = "";
+          return;
+        }
+        if (ev?.target?.dataset) ev.target.dataset.attachmentAllowed = "1";
+      }
+
       async function onAttachmentPick(ev) {
+        const allowedByClick = String(ev?.target?.dataset?.attachmentAllowed || "") === "1";
+        if (!allowedByClick) {
+          const ok = confirm(ATTACHMENT_WARNING_TEXT);
+          if (!ok) {
+            if (ev?.target) ev.target.value = "";
+            return;
+          }
+        }
+        if (ev?.target?.dataset) ev.target.dataset.attachmentAllowed = "";
         const files = Array.from(ev?.target?.files || []);
         if (!files.length) return;
         try {
@@ -1485,9 +1516,38 @@
         }));
       }
 
+      function addAttachmentLink() {
+        const hrefRaw = String(attachmentLinkDraft || "").trim();
+        if (!hrefRaw) return;
+        const href = /^https?:\/\//i.test(hrefRaw) ? hrefRaw : `https://${hrefRaw}`;
+        try {
+          const u = new URL(href);
+          const name = String(u.hostname + u.pathname).replace(/\/$/, "") || u.hostname || "Saite";
+          setDraft((prev) => ({
+            ...prev,
+            Pielikumi: [
+              ...(Array.isArray(prev?.Pielikumi) ? prev.Pielikumi : []),
+              { name, dataUrl: href, size: 0, type: "link" },
+            ],
+          }));
+          setAttachmentLinkDraft("");
+        } catch {
+          setErr("Nederīga saite. Ievadi korektu URL.");
+        }
+      }
+
       function downloadAttachment(item) {
         const href = String(item?.dataUrl ?? "").trim();
         if (!href) return;
+        if (isExternalAttachmentLink(item)) {
+          try {
+            const w = window.open(href, "_blank", "noopener,noreferrer");
+            if (!w) throw new Error("blocked");
+            return;
+          } catch {
+            // fallback to anchor click
+          }
+        }
         const a = document.createElement("a");
         a.href = href;
         a.download = String(item?.name || "pielikums");
@@ -1508,12 +1568,12 @@
           ["IAD_termins", "IaD ieteikuma termiņš"],
           ["Atbildigais", "Atbildīgais"],
           ["Lidzatbildigais", "Līdzatbildīgais"],
-          ["IAD_statuss", "IaD statuss"],
+          ["IAD_statuss", "IaD ieteikuma statuss"],
           ["IAD_datums", "IaD datums"],
-          ["IAD_PDD_komp_uzdevums", "IaD PDD kompetences uzdevums"],
+          ["IAD_PDD_komp_uzdevums", "PDD kompetences uzdevums"],
           ["Starptermins", "Starptermiņš"],
           ["Planotas_aktivitates", "Plānotās aktivitātes"],
-          ["Piezimes", "Piezīmes"],
+          ["Piezimes", "Izpildes informācija"],
           ["Pielikumi", "Pielikumi"],
         ];
         const header = cols.map(([, label]) => csvCell(label)).join(";");
@@ -1780,7 +1840,7 @@
                   </th>
                   <th>
                     <div class="iad-th-filter">
-                      <span>IaD statuss</span>
+                      <span>IaD ieteikuma statuss</span>
                       <button type="button" class=${`iad-filter-btn ${f.statuss ? "is-active" : ""}`} onClick=${() => toggleColumnFilter(sectionKey, "statuss")}>⏷</button>
                       ${isColumnFilterOpen(sectionKey, "statuss")
                         ? html`<div class="iad-filter-pop">
@@ -1794,7 +1854,7 @@
                         : null}
                     </div>
                   </th>
-                  <th>IaD kartiņa</th>
+                  <th>IaD ieteikuma kartiņa</th>
                 </tr>
               </thead>
               <tbody>
@@ -2015,7 +2075,7 @@
                     ${editMode
                       ? html`
                           <h3 style=${{ margin: "0 0 0.7rem" }}>
-                            ${editingId != null ? "Labot IaD kartiņu" : "Jauna IaD kartiņa"}
+                            ${editingId != null ? "Labot IaD ieteikuma kartiņu" : "Jauna IaD ieteikuma kartiņa"}
                           </h3>
                           <form class="stack" onSubmit=${onSave}>
                             <div class="iad-card-grid">
@@ -2034,7 +2094,7 @@
                               ${renderCardInput("IaD ieteikuma tēma (īss apraksts)", "IAD_ieteikuma_tema")}
                               ${renderCardInput("IaD ieteikuma termiņš", "IAD_termins", { type: "date" })}
                               <div class="iad-kv">
-                                <strong>IaD statuss</strong>
+                                <strong>IaD ieteikuma statuss</strong>
                                 <div class="iad-kv-value editable">
                                   <select class="iad-kv-select" value=${draft.IAD_statuss} onChange=${(e) => setDraft((d) => ({ ...d, IAD_statuss: e.target.value }))}>
                                     <option value="Aktīvs">Aktīvs</option>
@@ -2052,15 +2112,25 @@
                                 <strong>Līdzatbildīgais</strong>
                                 <div class="iad-kv-value editable">${renderPersonCheckboxes("Lidzatbildigais", "")}</div>
                               </div>
-                              ${renderCardTextarea("IaD PDD kompetences uzdevums", "IAD_PDD_komp_uzdevums")}
+                              ${renderCardTextarea("PDD kompetences uzdevums", "IAD_PDD_komp_uzdevums")}
                               ${renderCardInput("Starptermiņš", "Starptermins", { type: "date" })}
                               ${renderCardTextarea("Plānotās aktivitātes", "Planotas_aktivitates", "Var ievadīt neierobežotu teksta apjomu")}
-                              ${renderCardTextarea("Piezīmes", "Piezimes", "Var ievadīt neierobežotu teksta apjomu")}
+                              ${renderCardTextarea("Izpildes informācija", "Piezimes", "Var ievadīt neierobežotu teksta apjomu")}
                               <div class="iad-kv">
                                 <strong>Pielikumi</strong>
                                 <div class="iad-kv-value editable">
                                   <div class="iad-attachments">
-                                    <input type="file" multiple onChange=${onAttachmentPick} />
+                                    <input type="file" multiple onClick=${onAttachmentInputClick} onChange=${onAttachmentPick} />
+                                    <div class="row" style=${{ gap: "0.35rem", flexWrap: "wrap" }}>
+                                      <input
+                                        class="input"
+                                        style=${{ flex: "1 1 260px" }}
+                                        placeholder="Pievienot saiti (URL)"
+                                        value=${attachmentLinkDraft}
+                                        onInput=${(e) => setAttachmentLinkDraft(e.target.value)}
+                                      />
+                                      <button type="button" class="btn btn-ghost btn-small" onClick=${addAttachmentLink}>Pievienot saiti</button>
+                                    </div>
                                     <div class="iad-attachment-list">
                                       ${(Array.isArray(draft?.Pielikumi) ? draft.Pielikumi : []).length
                                         ? (Array.isArray(draft?.Pielikumi) ? draft.Pielikumi : []).map(
@@ -2069,7 +2139,7 @@
                                                 <span class="iad-attachment-name">${attachmentLabel(item)}</span>
                                                 <div class="row" style=${{ gap: "0.35rem", flexWrap: "wrap" }}>
                                                   ${item?.dataUrl
-                                                    ? html`<button type="button" class="btn btn-ghost btn-small" onClick=${() => downloadAttachment(item)}>Lejupielādēt</button>`
+                                                    ? html`<button type="button" class="btn btn-ghost btn-small" onClick=${() => downloadAttachment(item)}>${isExternalAttachmentLink(item) ? "Atvērt saiti" : "Lejupielādēt"}</button>`
                                                     : null}
                                                   <button type="button" class="btn btn-danger btn-small" onClick=${() => removeAttachment(index)}>Dzēst</button>
                                                 </div>
@@ -2095,7 +2165,7 @@
                         `
                       : html`
                           <h3 style=${{ margin: "0 0 0.45rem" }}>
-                            ${cardOpen?.IAD_nosaukums || "IaD kartiņa"}
+                            ${cardOpen?.IAD_nosaukums || "IaD ieteikuma kartiņa"}
                           </h3>
                           <div class="iad-card-grid">
                             ${cardEntries(cardOpen).map(
