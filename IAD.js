@@ -1001,6 +1001,9 @@
         focusHandledRef.current = false;
         setPendingFocusTask(focusTask);
         setSubmod("iad");
+        setOpenCurrent(true);
+        setOpenDone(true);
+        if (useDb) void refresh();
       }, [focusTask]);
 
       useEffect(() => {
@@ -1019,7 +1022,7 @@
           focusRetryRef.current = { sig: focusSig, retries: 0 };
         }
         if (!rows.length) {
-          if (useDb && focusRetryRef.current.retries < 1) {
+          if (useDb && focusRetryRef.current.retries < 3) {
             focusRetryRef.current.retries += 1;
             void refresh();
           }
@@ -1038,7 +1041,7 @@
         }
         const hit = findRowForTableFocus(pendingFocusTask, rows);
         if (!hit) {
-          if (useDb && focusRetryRef.current.retries < 2) {
+          if (useDb && focusRetryRef.current.retries < 6) {
             focusRetryRef.current.retries += 1;
             void refresh();
             return;
