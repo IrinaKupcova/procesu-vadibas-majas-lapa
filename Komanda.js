@@ -126,7 +126,10 @@
 
   function loadTeamUsers() {
     const raw = localStorage.getItem(LS_TEAM_USERS);
+    const hasDb = Boolean(globalThis.__PDD_SUPABASE__);
     if (!raw) {
+      // DB režīmā neizmantojam lokālo seed sarakstu, lai neparādās "izdomāti" vārdi.
+      if (hasDb) return [];
       localStorage.setItem(LS_TEAM_USERS, JSON.stringify(seedUsers));
       return [...seedUsers].map(normalizeUser);
     }
@@ -135,6 +138,7 @@
       if (!Array.isArray(parsed)) throw new Error("bad");
       return parsed.map(normalizeUser);
     } catch {
+      if (hasDb) return [];
       localStorage.setItem(LS_TEAM_USERS, JSON.stringify(seedUsers));
       return [...seedUsers].map(normalizeUser);
     }
@@ -209,7 +213,15 @@
     const uid = String(userId ?? "").trim();
     if (!uid) return { error: new Error("Trūkst userId.") };
     const value = normalizeAizvieto(aizvietoValue) || null;
-    const actorEmail = String(globalThis.__PDD_ACTOR_EMAIL__ ?? sessionStorage.getItem("pdd_local_email") ?? "").trim();
+    let actorEmail = String(globalThis.__PDD_ACTOR_EMAIL__ ?? sessionStorage.getItem("pdd_local_email") ?? "").trim();
+    if (!actorEmail && supabase?.auth?.getSession) {
+      try {
+        const s = await supabase.auth.getSession();
+        actorEmail = String(s?.data?.session?.user?.email ?? "").trim();
+      } catch {
+        // ignore auth session probe failures
+      }
+    }
     let lastError = null;
     for (const col of AIZVIETO_KEYS) {
       const payload = { [col]: value };
@@ -234,6 +246,13 @@
       });
       if (!rpcError) return { ok: true, rpc: true, row: rpcData };
       lastError = rpcError;
+      const { data: rpcData2, error: rpcError2 } = await supabase.rpc("pdd_update_user_aizvieto_open_by_email", {
+        p_actor_email: actorEmail,
+        p_target_user_id: uid,
+        p_aizvieto: value,
+      });
+      if (!rpcError2) return { ok: true, rpc: true, row: rpcData2 };
+      lastError = rpcError2;
     }
     return { error: lastError ?? new Error("Neizdevās atrast kolonu 'Aizvieto' tabulā users.") };
   }
@@ -241,7 +260,6 @@
   async function setUserAizvieto({ userId, replacementUserId = "", replacementName = "", syncDb = true }) {
     const uid = String(userId ?? "").trim();
     if (!uid) return { error: new Error("Trūkst userId.") };
-    const actorRole = String(globalThis.__PDD_ACTOR_ROLE__ ?? getCurrentLocalActor().role ?? "").trim().toLowerCase();
 
     const users = loadTeamUsers();
     const i = users.findIndex((u) => String(u.id) === uid);
@@ -249,7 +267,7 @@
       users.push(
         normalizeUser({
           id: uid,
-          role: actorRole || "user",
+          role: "user",
           "Vārds uzvārds": "",
           full_name: "",
           email: "",

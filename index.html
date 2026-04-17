@@ -3906,10 +3906,20 @@
           }, [users?.length]);
           useEffect(() => {
             const next = {};
+            const usersList = Array.isArray(users) ? users : [];
             for (const u of users ?? []) {
               const uid = String(u?.id ?? "").trim();
               if (!uid) continue;
-              next[uid] = String(u?.[COL_USER_AIZVIETO] ?? "").trim();
+              const raw = String(u?.[COL_USER_AIZVIETO] ?? "").trim();
+              const byId = usersList.find((x) => String(x?.id ?? "").trim() === raw);
+              if (byId) {
+                next[uid] = String(byId?.id ?? "").trim();
+                continue;
+              }
+              const byName = usersList.find(
+                (x) => String(userDisplayName(x) ?? "").trim().toLowerCase() === raw.toLowerCase()
+              );
+              next[uid] = String(byName?.id ?? "").trim();
             }
             setAizvietoDraft(next);
           }, [users]);
@@ -3917,7 +3927,9 @@
           async function saveAizvietoRow(u) {
             const uid = String(u?.id ?? "").trim();
             if (!uid) return;
-            const value = String(aizvietoDraft?.[uid] ?? "").trim();
+            const replacementUserId = String(aizvietoDraft?.[uid] ?? "").trim();
+            const replacementUser = (users ?? []).find((x) => String(x?.id ?? "").trim() === replacementUserId) ?? null;
+            const replacementName = String(userDisplayName(replacementUser) ?? "").trim();
             setAizvietoSaving((m) => ({ ...m, [uid]: true }));
             setAuthHint("");
             try {
@@ -3926,7 +3938,7 @@
                 setAuthHint("Aizvieto saglabāšana nav pieejama.");
                 return;
               }
-              const r = await fn({ userId: uid, replacementName: value, syncDb: true });
+              const r = await fn({ userId: uid, replacementUserId, replacementName, syncDb: true });
               if (r?.error) {
                 setAuthHint(String(r.error?.message ?? "Neizdevās saglabāt Aizvieto."));
                 return;
@@ -3966,8 +3978,10 @@
                                 const uid = String(u?.id ?? "").trim();
                                 const canEditAizvieto = true;
                                 const draftVal = String(aizvietoDraft?.[uid] ?? "").trim();
-                                const options = (window.KOMANDA?.getReplacementOptions?.(uid) ?? [])
-                                  .filter((x) => String(x?.name ?? "").trim())
+                                const options = (users ?? [])
+                                  .filter((x) => String(x?.id ?? "").trim() && String(x?.id ?? "").trim() !== uid)
+                                  .map((x) => ({ id: String(x.id), name: String(userDisplayName(x) ?? "").trim() }))
+                                  .filter((x) => x.name)
                                   .sort((a, b) =>
                                     String(a?.name ?? "").localeCompare(String(b?.name ?? ""), "lv")
                                   );
@@ -3987,7 +4001,7 @@
                                             >
                                               <option value="">Nav norādīts</option>
                                               ${options.map(
-                                                (opt) => html`<option key=${`aizv-${uid}-${opt.id}`} value=${opt.name}>${opt.name}</option>`
+                                                (opt) => html`<option key=${`aizv-${uid}-${opt.id}`} value=${opt.id}>${opt.name}</option>`
                                               )}
                                             </select>
                                             <button
@@ -6199,6 +6213,11 @@
             const normalizedUsers = rawUsers.map(normalizeTeamUserRecord);
             setApproverCols(detectUserApproverColumns(rawUsers));
             setTeamUsers(normalizedUsers);
+            try {
+              window.KOMANDA?.saveTeamUsers?.(normalizedUsers);
+            } catch {
+              // ignore KOMANDA local cache sync errors
+            }
             if (window.SASKANOSANA?.loadState) {
               const st = await window.SASKANOSANA.loadState(supabase, DEFAULT_MANAGER_NAME);
               if (!st?.error) {
