@@ -261,26 +261,7 @@
       return Array.from(
         new Map(
           rows
-            .map((u) => String(u?.["Vārds uzvārds"] ?? u?.full_name ?? "").trim())
-            .filter(Boolean)
-            .map((name) => [name.toLowerCase(), name])
-        ).values()
-      ).sort((a, b) => a.localeCompare(b, "lv"));
-    } catch {
-      return [];
-    }
-  }
-
-  async function fetchTeamOptionsFromSupabase(sb) {
-    if (!sb) return [];
-    try {
-      const { data, error } = await sb.from("users").select("*");
-      if (error) return [];
-      const rows = Array.isArray(data) ? data : [];
-      return Array.from(
-        new Map(
-          rows
-            .map((u) => String(u?.["Vārds uzvārds"] ?? u?.full_name ?? u?.name ?? "").trim())
+            .map((u) => String(u?.["Vārds uzvārds"] ?? "").trim())
             .filter(Boolean)
             .map((name) => [name.toLowerCase(), name])
         ).values()
@@ -642,6 +623,20 @@
       if (missing) continue;
     }
     throw lastErr || new Error("Neizdevās dzēst IaD ierakstu.");
+  }
+
+  async function deleteIadRowByNaturalKeyInSupabase(sb, rowLike) {
+    const table = await resolveIadTableName(sb);
+    await ensureRuntimeColsByProbe(sb, table);
+    const numurs = toStr(rowLike?.IAD_numurs);
+    const nosaukums = toStr(rowLike?.IAD_nosaukums);
+    if (!numurs && !nosaukums) throw new Error("Ierakstu dzēšanai nevar identificēt (trūkst numura un nosaukuma).");
+    let query = sb.from(table).delete();
+    if (numurs) query = query.eq(runtimeCols.numurs, numurs);
+    if (nosaukums) query = query.eq(runtimeCols.nosaukums, nosaukums);
+    const { data, error } = await query.select("*").limit(1).maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("Ieraksts dzēšanai netika atrasts.");
   }
 
   function isTodayInTaskRange(row, todayIso) {
@@ -1220,14 +1215,13 @@
       useEffect(() => {
         let cancelled = false;
         (async () => {
-          const fromDb = await fetchTeamOptionsFromSupabase(supabase);
-          const merged = Array.from(new Set([...fromDb, ...listTeamOptions()]));
-          if (!cancelled) setTeamOptions(merged.sort((a, b) => a.localeCompare(b, "lv")));
+          const teamNames = listTeamOptions();
+          if (!cancelled) setTeamOptions(teamNames);
         })();
         return () => {
           cancelled = true;
         };
-      }, [submod, editMode, supabase]);
+      }, [submod, editMode]);
 
       useEffect(() => {
         if (pendingFocusTask) return;
@@ -1769,15 +1763,27 @@
         setBusy(true);
         try {
           if (useDb) {
-            if (row?.id == null) throw new Error("Ierakstam nav id.");
-            await deleteIadRowFromSupabase(supabase, row.id);
+            if (row?.id != null) await deleteIadRowFromSupabase(supabase, row.id);
+            else await deleteIadRowByNaturalKeyInSupabase(supabase, row);
             await refresh();
           } else {
-            const list = loadLocalRows().filter((x) => String(x.id) !== String(row?.id));
+            const rowNumurs = toStr(row?.IAD_numurs);
+            const rowNosaukums = toStr(row?.IAD_nosaukums);
+            const list = loadLocalRows().filter((x) => {
+              if (row?.id != null) return String(x.id) !== String(row?.id);
+              const sameNumurs = toStr(x?.IAD_numurs) === rowNumurs;
+              const sameNosaukums = toStr(x?.IAD_nosaukums) === rowNosaukums;
+              return !(sameNumurs && sameNosaukums);
+            });
             saveLocalRows(list);
             setRows(list);
           }
-          if (cardOpen && String(cardOpen?.id) === String(row?.id)) closeOverlay();
+          if (cardOpen) {
+            const sameId = row?.id != null && String(cardOpen?.id) === String(row?.id);
+            const sameNumurs = toStr(cardOpen?.IAD_numurs) === toStr(row?.IAD_numurs);
+            const sameNosaukums = toStr(cardOpen?.IAD_nosaukums) === toStr(row?.IAD_nosaukums);
+            if (sameId || (sameNumurs && sameNosaukums)) closeOverlay();
+          }
         } catch (e) {
           setErr(String(e?.message || e || "Neizdevās dzēst."));
         } finally {
