@@ -207,21 +207,47 @@
       .filter((x) => x.name);
   }
 
+  async function resolveActorEmail(supabase) {
+    const fromGlobal = String(globalThis.__PDD_ACTOR_EMAIL__ ?? "").trim();
+    if (fromGlobal) return fromGlobal;
+    const fromSession = String(sessionStorage.getItem("pdd_local_email") ?? "").trim();
+    if (fromSession) return fromSession;
+
+    const actorId = String(sessionStorage.getItem(LS_LOCAL_USER_ID) || "").trim();
+    if (actorId) {
+      const me = loadTeamUsers().find((u) => String(u?.id ?? "").trim() === actorId);
+      const em = String(me?.email ?? me?.["i-mail"] ?? "").trim();
+      if (em) return em;
+    }
+
+    if (supabase?.auth?.getSession) {
+      try {
+        const s = await supabase.auth.getSession();
+        const em = String(s?.data?.session?.user?.email ?? "").trim();
+        if (em) return em;
+      } catch {
+        // ignore
+      }
+    }
+    if (supabase?.auth?.getUser) {
+      try {
+        const u = await supabase.auth.getUser();
+        const em = String(u?.data?.user?.email ?? "").trim();
+        if (em) return em;
+      } catch {
+        // ignore
+      }
+    }
+    return "";
+  }
+
   async function saveAizvietoToSupabase(userId, aizvietoValue) {
     const supabase = globalThis.__PDD_SUPABASE__;
     if (!supabase) return { skipped: true, reason: "no_supabase" };
     const uid = String(userId ?? "").trim();
     if (!uid) return { error: new Error("Trūkst userId.") };
     const value = normalizeAizvieto(aizvietoValue) || null;
-    let actorEmail = String(globalThis.__PDD_ACTOR_EMAIL__ ?? sessionStorage.getItem("pdd_local_email") ?? "").trim();
-    if (!actorEmail && supabase?.auth?.getSession) {
-      try {
-        const s = await supabase.auth.getSession();
-        actorEmail = String(s?.data?.session?.user?.email ?? "").trim();
-      } catch {
-        // ignore auth session probe failures
-      }
-    }
+    const actorEmail = await resolveActorEmail(supabase);
     let lastError = null;
     for (const col of AIZVIETO_KEYS) {
       const payload = { [col]: value };
