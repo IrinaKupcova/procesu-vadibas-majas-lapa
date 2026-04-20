@@ -440,6 +440,7 @@
       <!-- Lokālie dati + ziņas komandai (bez Supabase/API) -->
       <script src="./Komanda.js?v=20260422"></script>
       <script src="./IAD.js?v=20260443"></script>
+      <script src="./Saliedesana.js?v=20260420"></script>
       <script src="./supabase/migrations/izmainas.js?v=20260413"></script>
       <script src="./Sodien.js?v=20260421"></script>
       <script src="./Kalendars.js?v=20260410"></script>
@@ -2474,7 +2475,7 @@
           return html`<${View} supabase=${supabase} />`;
         }
 
-        function Dashboard({ onOpenPrombutnes, onOpenDarbaUzdevumi, onOpenTodayTask, absencesToday }) {
+        function Dashboard({ onOpenPrombutnes, onOpenDarbaUzdevumi, onOpenSaliedesana, onOpenTodayTask, absencesToday }) {
           const [sodienRows, setSodienRows] = useState(() => {
             try {
               if (TIKAI_VIENKARSI_SKATS || isLocalMode() || !configured() || !globalThis.__PDD_SUPABASE__) {
@@ -2505,6 +2506,14 @@
               setSodienRows(V?.visibleAktualitatesActive?.() ?? []);
             }
           }, []);
+          useEffect(() => {
+            globalThis.__PDD_REFRESH_SODIEN_AKTUALITATES__ = refreshSodienAktualitates;
+            return () => {
+              if (globalThis.__PDD_REFRESH_SODIEN_AKTUALITATES__ === refreshSodienAktualitates) {
+                globalThis.__PDD_REFRESH_SODIEN_AKTUALITATES__ = null;
+              }
+            };
+          }, [refreshSodienAktualitates]);
           const refreshTodayTasks = useCallback(async () => {
             const I = globalThis.IAD;
             const sb = globalThis.__PDD_SUPABASE__;
@@ -2657,10 +2666,9 @@
                   <h3>Darba uzdevumi</h3>
                   <p>IaD ieteikumi un citi apakšmoduļi.</p>
                 </button>
-                <div class="card" style=${{ opacity: 0.65, cursor: "default" }}>
-                  <h3>Modulis3</h3>
-                  <p>Plānots.</p>
-                </div>
+                <button type="button" class="card" onClick=${onOpenSaliedesana}>
+                  <h3>Saliedēšanas pasākumi, svētku dienas u.c.</h3>
+                </button>
               </div>
               ${sodienBlock}
             </section>
@@ -6656,6 +6664,7 @@
           function makeSectionLabel(sectionView, sectionPromSub, sectionAnchor) {
             if (sectionView === "home") return "Sākums";
             if (sectionView === "team") return "Komanda";
+            if (sectionView === "saliedesana") return "Saliedēšanas pasākumi, svētku dienas u.c.";
             if (sectionView === "darbaUzdevumiIad" && sectionAnchor === "iad-current") return "IaD: Aktuālie";
             if (sectionView === "darbaUzdevumiIad" && sectionAnchor === "iad-done") return "IaD: Neaktuālie";
             if (sectionView === "darbaUzdevumiIad") return "IaD ieteikumi";
@@ -7116,6 +7125,7 @@
             >
               ${(() => {
                 const IadPanel = globalThis.IAD?.createIadModule?.(html, React);
+                const SaliedesanaPanel = globalThis.SALIEDESANA?.createSaliedesanaPanel?.(html, React);
                 if (view === "darbaUzdevumiIad") {
                   return IadPanel
                     ? html`<${IadPanel}
@@ -7126,6 +7136,11 @@
                         onPinListChange=${handleIadListPinChange}
                       />`
                     : html`<section class="list-panel"><p>IaD modulis nav ielādēts.</p></section>`;
+                }
+                if (view === "saliedesana") {
+                  return SaliedesanaPanel
+                    ? html`<${SaliedesanaPanel} />`
+                    : html`<section class="list-panel"><p>Saliedēšanas modulis nav ielādēts.</p></section>`;
                 }
                 return null;
               })()}
@@ -7140,6 +7155,10 @@
                       setNavPast((p) => [...p, { view, promSub }]);
                       setDarbaUzdevumiFocus(null);
                       setView("darbaUzdevumiIad");
+                    }}
+                    onOpenSaliedesana=${() => {
+                      setNavPast((p) => [...p, { view, promSub }]);
+                      setView("saliedesana");
                     }}
                     onOpenTodayTask=${(task) => {
                       setNavPast((p) => [...p, { view, promSub }]);
@@ -7164,6 +7183,8 @@
                   : view === "pddAppChanges"
                     ? html`<${PddAppChangesView} />`
                   : view === "darbaUzdevumiIad"
+                    ? null
+                  : view === "saliedesana"
                     ? null
                   : view === "team"
                     ? html`<${PrombutnesSection}

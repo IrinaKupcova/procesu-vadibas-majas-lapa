@@ -7,34 +7,33 @@
  * Stabilitāte: prombūtnes vēstures labošana/dzēšana un DB kolonnas — index.html;
  * šajā failā turpmāk labojam tikai e-pasta loģiku šim modulim.
  *
- * E-pasta sūtīšana produkcijā: `api/pdd-resend.js` (Resend, bez Edge Functions).
- * `onRequestCreated` šeit ir references modulis; sinhronizē ar šī API loģiku.
- */
+  * E-pasta sūtīšana produkcijā: `api/pdd-resend.js` (Resend, bez Edge Functions).
+  * `onRequestCreated` šeit ir references modulis; sinhronizē ar šī API loģiku.
+  */
 
-const APPROVAL_LINK = "https://irinakupcova.github.io/PDD_aplikacija/prombutnes-vesture";
-const MANAGER_NOTIFY_EMAIL = "katrina.jirgensone@vid.gov.lv";
-const MANAGER_NOTIFY_COPY_EMAIL = "irina.kupcova@vid.gov.lv";
+  const APPROVAL_LINK = "https://irinakupcova.github.io/PDD_aplikacija/prombutnes-vesture";
+  const MANAGER_NOTIFY_EMAIL = "katrina.jirgensone@vid.gov.lv";
+  const MANAGER_NOTIFY_COPY_EMAIL = "irina.kupcova@vid.gov.lv";
 
-function norm(v) {
-  return String(v ?? "").trim().toLowerCase();
-}
+  function norm(v) {
+    return String(v ?? "").trim().toLowerCase();
+  }
 
-function normLoose(v) {
-  return String(v ?? "")
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-}
+  function normLoose(v) {
+    return String(v ?? "")
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+  }
 
-function startsWithCits(veids) {
-  return normLoose(veids).startsWith("cits");
-}
-
-function isAdminRole(role) {
-  const r = normLoose(role);
-  return r === "admin";
-}
+  function startsWithCits(veids) {
+    return normLoose(veids).startsWith("cits");
+  }
+  function isAdminRole(role) {
+    const r = normLoose(role);
+    return r === "admin";
+  }
 
 function pickUserRole(user) {
   return user?.role ?? user?.Role ?? user?.ROLE ?? user?.lomas ?? user?.Lomas ?? user?.LOMAS ?? "";
@@ -216,45 +215,16 @@ async function onRequestCreated({
 
   if (!startsWithCits(effectiveVeids)) return { ok: true, notified: false };
 
-  const admin = await getFirstAdmin(supabase);
-  const adminEmail = MANAGER_NOTIFY_EMAIL || pickUserEmail(admin);
-  // Vienmēr paziņojam Katrīnai + kopija Irinai (bez dublikātiem).
-  const notifyTo = uniqEmails([adminEmail, MANAGER_NOTIFY_COPY_EMAIL]);
-  if (!notifyTo.length) return { ok: true, notified: false, warning: "Vadītāja e-pasts nav atrasts." };
-
-  const applicant = await getUserById(supabase, pickRequestUserId(req));
-  const applicantEmail = pickUserEmail(applicant);
-
-  const managerSubject = "Ir iesniegts jauns prombūtnes pieteikums (Cits)";
-  const managerText =
-    "Ir iesniegts jauns prombūtnes pieteikums (Cits).\n\n" + `Atvērt sistēmā: ${APPROVAL_LINK}`;
-
-  const applicantSubject = "Pārbaude: Jūsu Cits pieteikums nodots saskaņošanai";
-  const applicantText =
-    "Šis e-pasts ir pārbaudei: Jūsu prombūtnes pieteikums (Cits) ir reģistrēts un vadītājam ir nosūtīts paziņojums saskaņošanai.\n\n" +
-    `Atvērt sistēmā: ${APPROVAL_LINK}`;
-
-  const sends = [
-    sendResendEmailStrict(resend, {
-      from: fromEmail,
-      to: notifyTo,
-      subject: managerSubject,
-      text: managerText,
-    }),
-  ];
-
-  if (applicantEmail && norm(applicantEmail) !== norm(adminEmail)) {
-    sends.push(
-      sendResendEmail(resend, {
-        from: fromEmail,
-        to: applicantEmail,
-        subject: applicantSubject,
-        text: applicantText,
-      })
-    );
-  }
-
-  await Promise.all(sends);
+  const userId = pickRequestUserId(req);
+  const user = await getUserById(supabase, userId);
+  const applicantEmail = pickUserEmail(user);
+  
+  await sendCitsPendingNotificationFromApi(resend, fromEmail, {
+    start: req.sakums,
+    end: req.beigas,
+    link: APPROVAL_LINK,
+    applicantEmail,
+  });
 
   const warning = !applicantEmail
     ? "Pieteicēja e-pasts nav atrasts — kopija pārbaudei netika nosūtīta."

@@ -374,6 +374,13 @@
                   </button>
                 </div>
               </details>
+              <button
+                type="button"
+                class=${`app-nav-link ${view === "saliedesana" ? "active" : ""}`}
+                onClick=${() => onChangeView("saliedesana")}
+              >
+                Saliedēšanas pasākumi, svētku dienas u.c.
+              </button>
               <details class="app-nav-vesture-details" open=${vestureAccordionOpen}>
                 <summary class="app-nav-link app-nav-vesture-summary">Vēsture</summary>
                 <div class="app-nav-sub" role="group" aria-label="Vēstures apakšsadaļas">
