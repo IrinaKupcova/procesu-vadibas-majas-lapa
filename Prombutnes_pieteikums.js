@@ -15,7 +15,7 @@ function normalizeTimeLv(t) {
   if (!t) return "";
   if (typeof t === "string") {
     const s = String(t).trim();
-    const m = /^(\d{1,2}):(\d{2})$/.exec(s);
+    const m = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(s);
     if (m) return `${pad2(m[1])}:${pad2(m[2])}`;
     return s;
   }

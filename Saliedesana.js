@@ -100,6 +100,11 @@
       .sal-rsvp-bar-label { font-size:.74rem; color:#7c2d12; display:flex; justify-content:space-between; }
       .sal-rsvp-bar-track { height:8px; border-radius:999px; background:#ffedd5; overflow:hidden; }
       .sal-rsvp-bar-fill { height:100%; border-radius:999px; }
+      .sal-rsvp-summary-grid { display:grid; gap:.45rem; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); }
+      .sal-rsvp-summary-col { border:1px solid #fed7aa; border-radius:10px; background:#fff; padding:.45rem; display:grid; gap:.3rem; }
+      .sal-rsvp-summary-head { display:flex; justify-content:space-between; align-items:center; font-size:.78rem; font-weight:700; color:#7c2d12; }
+      .sal-rsvp-summary-list { margin:0; padding-left:1rem; display:grid; gap:.2rem; font-size:.76rem; color:#7c2d12; }
+      .sal-rsvp-summary-empty { font-size:.74rem; color:#9a3412; }
       .sal-reason-block { border:1px solid #fed7aa; border-radius:8px; background:#fff; padding:.45rem; display:grid; gap:.35rem; }
     `;
     document.head.appendChild(s);
@@ -170,6 +175,14 @@
     if (["jā", "ja", "yes", "true", "1", "online", "ir"].includes(s)) return true;
     if (["nē", "ne", "no", "false", "0", "nav"].includes(s)) return false;
     return parseBool(value);
+  }
+
+  function normalizeTimeHHMM(value) {
+    const s = String(value ?? "").trim();
+    if (!s) return "";
+    const m = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(s);
+    if (!m) return s;
+    return `${String(m[1]).padStart(2, "0")}:${String(m[2]).padStart(2, "0")}`;
   }
 
   function splitPapilduPiezimes(raw) {
@@ -254,13 +267,13 @@
       ),
       remoteId: remoteIdValue > 0 ? remoteIdValue : null,
       date: String(pickFromRow(src, SAL_COL_CANDIDATES.Datums.concat(["event_date", "date"]), "") || pickByAliases(src, ["event_date", "date"], "")).trim(),
-      time: String(
+      time: normalizeTimeHHMM(String(
         pickFromRow(
           src,
           SAL_COL_CANDIDATES.Sakuma_laiks.concat(["event_time", "time", "no_cikiem"]),
           ""
         ) || pickByAliases(src, ["event_time", "time"], "")
-      ).trim(),
+      ).trim()),
       category: String(pickByAliases(src, ["category"], "team")).trim().toLowerCase() === "holiday" ? "holiday" : "team",
       eventType: String(
         pickFromRow(src, SAL_COL_CANDIDATES.Pasakuma_veids.concat(["event_type", "eventType"]), "") ||
@@ -323,14 +336,14 @@
         fee: String(
           details.fee ?? pickFromRow(src, SAL_COL_CANDIDATES.Dalibas_maksa, pickByAliases(src, ["Dalibas_maksa", "dalibas_maksa"], ""))
         ).trim(),
-        timeTo: String(
+        timeTo: normalizeTimeHHMM(String(
           details.timeTo ??
             pickFromRow(
               src,
               SAL_COL_CANDIDATES.Beigu_laiks.concat(["time_to", "beigas_laiks", "lidz"]),
               pickByAliases(src, ["time_to", "beigas_laiks", "lidz"], "")
             )
-        ).trim(),
+        ).trim()),
         showInAktualitates: Boolean(details.showInAktualitates ?? parseBool(pickByAliases(src, ["Radit_aktualitates", "radit_aktualitates", "vai_radit_aktualitates", "publicet_aktualitates"], false))),
         aktualitatesId: Number((details.aktualitatesId ?? pickByAliases(src, ["Aktualitates_id", "aktualitates_id"], 0)) || 0) || null,
       },
@@ -704,10 +717,20 @@
         badge.className = "sal-main-cal-badge";
         const icon = String(ev?.icon || "").trim() || "✨";
         const txt = String(ev?.title || "").trim();
+        const eventId = String(ev?.id || "").trim();
         badge.textContent = `${icon} ${txt}`;
         badge.title = txt;
         badge.style.cssText =
-          "display:inline-flex;max-width:100%;padding:1px 6px;border-radius:999px;background:#f97316;color:#fff;font-size:10px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";
+          "display:inline-flex;max-width:100%;padding:1px 6px;border-radius:999px;background:#f97316;color:#fff;font-size:10px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;pointer-events:auto;position:relative;z-index:2;";
+        if (eventId) badge.dataset.salEventId = eventId;
+        badge.dataset.salEventDate = dKey;
+        badge.dataset.salEventTitle = txt;
+        badge.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const eventTitle = String(badge.dataset.salEventTitle || "").trim();
+          requestOpenSaliedesanaEvent({ eventId, date: dKey, title: eventTitle });
+        });
         wrap.appendChild(badge);
       });
       if (dayEvents.length > 2) {
@@ -756,6 +779,73 @@
       if (shouldRepaint) requestPaint();
     });
     observer.observe(document.body, { childList: true, subtree: true });
+    if (!globalThis.__PDD_SALIEDESANA_BADGE_CLICK_DELEGATE__) {
+      globalThis.__PDD_SALIEDESANA_BADGE_CLICK_DELEGATE__ = true;
+      document.addEventListener(
+        "click",
+        (evt) => {
+          const t = evt.target instanceof Element ? evt.target.closest(".sal-main-cal-badge") : null;
+          if (!t) return;
+          evt.preventDefault();
+          evt.stopPropagation();
+          const eventId = String(t.dataset.salEventId || "").trim();
+          const eventDate = String(t.dataset.salEventDate || "").trim();
+          const eventTitle = String(t.dataset.salEventTitle || "").trim();
+          requestOpenSaliedesanaEvent({ eventId, date: eventDate, title: eventTitle });
+        },
+        true
+      );
+    }
+  }
+
+  function requestOpenSaliedesanaEvent(ref) {
+    const eventId = String(ref?.eventId || "").trim();
+    const eventDate = String(ref?.date || "").trim();
+    const eventTitle = String(ref?.title || "").trim();
+    globalThis.__PDD_SALIEDESANA_PENDING_OPEN_EVENT_ID__ = eventId;
+    globalThis.__PDD_SALIEDESANA_PENDING_OPEN_EVENT_DATE__ = eventDate;
+    globalThis.__PDD_SALIEDESANA_PENDING_OPEN_EVENT_TITLE__ = eventTitle;
+    try {
+      window.dispatchEvent(
+        new CustomEvent("pdd:open-saliedesana-event", {
+          detail: { eventId, date: eventDate, title: eventTitle },
+        })
+      );
+    } catch {
+      // ignore
+    }
+
+    const tryOpen = () => {
+      try {
+        globalThis.__PDD_OPEN_SALIEDESANA_VIEW__?.();
+      } catch {
+        // ignore
+      }
+      const openNow = globalThis.__PDD_SALIEDESANA_OPEN_EVENT_CARD__;
+      if (typeof openNow === "function") {
+        const opened = openNow({ eventId, date: eventDate, title: eventTitle });
+        if (opened) return true;
+      }
+      const navButtons = Array.from(document.querySelectorAll("button"));
+      const salBtn = navButtons.find((b) => /Saliedēšanas pasākumi/i.test(String(b.textContent || "")));
+      if (salBtn) salBtn.click();
+      return false;
+    };
+
+    if (tryOpen()) return;
+    if (globalThis.__PDD_SALIEDESANA_OPEN_RETRY_T__) {
+      clearInterval(globalThis.__PDD_SALIEDESANA_OPEN_RETRY_T__);
+      globalThis.__PDD_SALIEDESANA_OPEN_RETRY_T__ = null;
+    }
+    let attempts = 0;
+    globalThis.__PDD_SALIEDESANA_OPEN_RETRY_T__ = setInterval(() => {
+      attempts += 1;
+      const ok = tryOpen();
+      if (ok || attempts >= 18) {
+        clearInterval(globalThis.__PDD_SALIEDESANA_OPEN_RETRY_T__);
+        globalThis.__PDD_SALIEDESANA_OPEN_RETRY_T__ = null;
+      }
+    }, 160);
   }
 
   function createSaliedesanaPanel(html, React) {
@@ -772,8 +862,8 @@
 
     function formatDateTime(ev) {
       const d = String(ev?.date ?? "").trim();
-      const t = String(ev?.time ?? "").trim();
-      const tt = String(ev?.details?.timeTo ?? "").trim();
+      const t = normalizeTimeHHMM(String(ev?.time ?? "").trim());
+      const tt = normalizeTimeHHMM(String(ev?.details?.timeTo ?? "").trim());
       if (d && t && tt) return `${d} ${t}-${tt}`;
       if (d && t) return `${d} ${t}`;
       return d || "—";
@@ -922,7 +1012,6 @@
       const [participants, setParticipants] = useState({});
       const [noReasonType, setNoReasonType] = useState("");
       const [noReasonText, setNoReasonText] = useState("");
-      const [showInAktualitates, setShowInAktualitates] = useState(false);
 
       const monthGrid = useMemo(() => buildMonthGrid(calendarMonth), [calendarMonth]);
 
@@ -1029,7 +1118,6 @@
         setParticipants({});
         setNoReasonType("");
         setNoReasonText("");
-        setShowInAktualitates(false);
         setCardOpen(true);
       }
 
@@ -1040,8 +1128,8 @@
         setCardCategory(ev.category || "team");
         setCardEventType(ev.eventType || "saliedesana");
         setCardTitle(ev.title || "");
-        setCardTime(ev.time || "");
-        setCardTimeTo(ev.details?.timeTo || "");
+        setCardTime(normalizeTimeHHMM(ev.time || ""));
+        setCardTimeTo(normalizeTimeHHMM(ev.details?.timeTo || ""));
         setCardLocation(ev.location || "");
         setCardOnline(Boolean(ev.online));
         setCardShortCategory(ev.shortCategory || "sports");
@@ -1079,14 +1167,82 @@
         const mine = ev.participants?.[me];
         setNoReasonType(String(mine?.reasonType ?? ""));
         setNoReasonText(String(mine?.reasonText ?? ""));
-        setShowInAktualitates(Boolean(ev.details?.showInAktualitates));
         setCardOpen(true);
       }
 
+      function openEventCardByRef(ref) {
+        const id = String(ref?.eventId || "").trim();
+        const dateHint = String(ref?.date || "").trim();
+        const titleHint = String(ref?.title || "").trim();
+        const liveEvents = Array.isArray(events) ? events : [];
+        let ev = id ? liveEvents.find((x) => String(x?.id || "").trim() === id) : null;
+        if (!ev && dateHint && titleHint) {
+          ev = liveEvents.find(
+            (x) => String(x?.date || "").trim() === dateHint && String(x?.title || "").trim() === titleHint
+          );
+        }
+        if (!ev) {
+          const local = loadLocalEvents();
+          ev = id ? local.find((x) => String(x?.id || "").trim() === id) : null;
+          if (!ev && dateHint && titleHint) {
+            ev = local.find(
+              (x) => String(x?.date || "").trim() === dateHint && String(x?.title || "").trim() === titleHint
+            );
+          }
+          if (!ev && dateHint) {
+            ev = local
+              .filter((x) => String(x?.date || "").trim() === dateHint)
+              .sort((a, b) => String(a?.time || "").localeCompare(String(b?.time || "")))[0];
+          }
+        }
+        if (!ev && dateHint) {
+          const monthDate = new Date(dateHint);
+          if (!Number.isNaN(monthDate.getTime())) setCalendarMonth(monthDate);
+          return false;
+        }
+        if (!ev) return false;
+        const monthDate = new Date(String(ev.date || ""));
+        if (!Number.isNaN(monthDate.getTime())) setCalendarMonth(monthDate);
+        openCardEdit(ev);
+        return true;
+      }
+
+      useEffect(() => {
+        globalThis.__PDD_SALIEDESANA_OPEN_EVENT_CARD__ = openEventCardByRef;
+        const pendingId = String(globalThis.__PDD_SALIEDESANA_PENDING_OPEN_EVENT_ID__ || "").trim();
+        const pendingDate = String(globalThis.__PDD_SALIEDESANA_PENDING_OPEN_EVENT_DATE__ || "").trim();
+        const pendingTitle = String(globalThis.__PDD_SALIEDESANA_PENDING_OPEN_EVENT_TITLE__ || "").trim();
+        if (pendingId || pendingDate || pendingTitle) {
+          const opened = openEventCardByRef({ eventId: pendingId, date: pendingDate, title: pendingTitle });
+          if (opened) {
+            globalThis.__PDD_SALIEDESANA_PENDING_OPEN_EVENT_ID__ = "";
+            globalThis.__PDD_SALIEDESANA_PENDING_OPEN_EVENT_DATE__ = "";
+            globalThis.__PDD_SALIEDESANA_PENDING_OPEN_EVENT_TITLE__ = "";
+          }
+        }
+        return () => {
+          if (globalThis.__PDD_SALIEDESANA_OPEN_EVENT_CARD__ === openEventCardByRef) {
+            delete globalThis.__PDD_SALIEDESANA_OPEN_EVENT_CARD__;
+          }
+        };
+      }, [events]);
+
       function addAttachment(kind = "link") {
-        const label = String(attLabel || "").trim();
         const url = String(attUrl || "").trim();
-        if (!label || !url) return;
+        if (!url) return;
+        let label = String(attLabel || "").trim();
+        if (!label) {
+          try {
+            const withProto = /^https?:\/\//i.test(url) || /^data:image\//i.test(url) ? url : `https://${url}`;
+            const u = /^data:image\//i.test(withProto) ? null : new URL(withProto);
+            const host = String(u?.hostname || "").replace(/^www\./i, "");
+            const pathName = String(u?.pathname || "").replace(/\/+$/, "");
+            const tail = pathName.split("/").filter(Boolean).pop() || "";
+            label = tail ? decodeURIComponent(tail) : host || "Saite";
+          } catch {
+            label = kind === "image" ? "Attēls" : "Saite";
+          }
+        }
         setAttachments((prev) => [...prev, { label, url, kind }]);
         if (kind === "image") {
           const safeUrl = /^https?:\/\//i.test(url) || /^data:image\//i.test(url) ? url : `https://${url}`;
@@ -1150,8 +1306,7 @@
         saveLocalEvents(nextEvents);
         if (!changedRow) return;
         if (!supabase) {
-          if (changedRow?.details?.showInAktualitates) upsertLocalAktualitateFromEvent(changedRow);
-          else deleteLocalAktualitateByEventId(changedRow?.id);
+          deleteLocalAktualitateByEventId(changedRow?.id);
           return;
         }
         try {
@@ -1162,9 +1317,7 @@
           }
 
           let nextAktId = Number(row?.details?.aktualitatesId || 0) || null;
-          if (row?.details?.showInAktualitates) {
-            nextAktId = await upsertAktualitateFromEvent(supabase, row);
-          } else if (nextAktId) {
+          if (nextAktId) {
             deleteLocalAktualitateByEventId(row?.id);
             await deleteAktualitateById(supabase, nextAktId);
             nextAktId = null;
@@ -1219,7 +1372,7 @@
             bringAlong: detailBringAlong,
             fee: detailFee,
             timeTo: String(cardTimeTo || "").trim(),
-            showInAktualitates: Boolean(showInAktualitates),
+            showInAktualitates: false,
             aktualitatesId: Number(events.find((x) => x.id === id)?.details?.aktualitatesId || 0) || null,
           },
           poll: { items: pollItemsFromState() },
@@ -1457,6 +1610,36 @@
       const rsvpTotal = Math.max(1, rsvp.yes + rsvp.maybe + rsvp.no);
       const myRsvpRaw = participants?.[actorKey()];
       const myRsvp = myRsvpRaw && typeof myRsvpRaw === "object" ? myRsvpRaw : { status: String(myRsvpRaw || "") };
+      const teamUsers = Array.isArray(globalThis.KOMANDA?.loadTeamUsers?.()) ? globalThis.KOMANDA.loadTeamUsers() : [];
+      const prettyPersonName = (rawKey) => {
+        const raw = String(rawKey || "").trim();
+        if (!raw) return "Nezināms";
+        const byId = teamUsers.find((u) => String(u?.id ?? "").trim() === raw);
+        if (byId) return String(byId["Vārds uzvārds"] || byId.full_name || byId.email || raw).trim();
+        const low = raw.toLowerCase();
+        const byEmail = teamUsers.find((u) => {
+          const a = String(u?.email ?? "").trim().toLowerCase();
+          const b = String(u?.["i-mail"] ?? "").trim().toLowerCase();
+          const c = String(u?.["e-mail"] ?? "").trim().toLowerCase();
+          return a === low || b === low || c === low;
+        });
+        if (byEmail) return String(byEmail["Vārds uzvārds"] || byEmail.full_name || byEmail.email || raw).trim();
+        if (raw.includes("@")) return raw.split("@")[0];
+        return raw;
+      };
+      const rsvpPeople = Object.entries(participants || {}).reduce(
+        (acc, [uid, row]) => {
+          const statusRaw = row && typeof row === "object" ? row.status : row;
+          const status = String(statusRaw || "maybe").trim().toLowerCase();
+          const person = prettyPersonName(uid);
+          if (status === "yes") acc.yes.push(person);
+          else if (status === "no") acc.no.push(person);
+          else acc.maybe.push(person);
+          return acc;
+        },
+        { yes: [], maybe: [], no: [] }
+      );
+      const useFullEventCard = cardEventType === "saliedesana" || cardEventType === "cits";
       const cardCategoryIcon = `${cardShortCategory}|${cardIcon}`;
       function onCategoryIconChange(value) {
         const raw = String(value || "");
@@ -1554,7 +1737,7 @@
                         </div>
                       </div>
 
-                      ${cardEventType === "saliedesana"
+                      ${useFullEventCard
                         ? html`
                             <div class="field">
                               <label>Pasākuma nosaukums</label>
@@ -1573,12 +1756,6 @@
                                 <label>Līdz cikiem</label>
                                 <input class="input" type="time" value=${cardTimeTo} onInput=${(e) => setCardTimeTo(e.target.value)} />
                               </div>
-                            </div>
-                            <div class="field">
-                              <label style=${{ display: "flex", alignItems: "center", gap: ".5rem" }}>
-                                <input type="checkbox" checked=${showInAktualitates} onChange=${(e) => setShowInAktualitates(Boolean(e.target.checked))} />
-                                Rādīt galvenajā lapā pie Aktualitātēm
-                              </label>
                             </div>
                             <div class="field">
                               <label style=${{ display: "flex", alignItems: "center", gap: ".5rem" }}>
@@ -1606,7 +1783,6 @@
                             </div>
                             <div class="field"><label>Pasākuma apraksts</label><input class="input" value=${detailEventWhat} onInput=${(e) => setDetailEventWhat(e.target.value)} /></div>
                             <div class="field"><label>Kāpēc piedalīties (motivējoši)</label><textarea class="textarea" value=${detailWhyJoin} onInput=${(e) => setDetailWhyJoin(e.target.value)} /></div>
-                            <div class="field"><label>Ko sagaidīt</label><textarea class="textarea" value=${detailWhatExpect} onInput=${(e) => setDetailWhatExpect(e.target.value)} /></div>
                             <div class="row" style=${{ gap: ".65rem" }}>
                               <div class="field" style=${{ flex: 1 }}><label>Dress code</label><input class="input" value=${detailDressCode} onInput=${(e) => setDetailDressCode(e.target.value)} /></div>
                               <div class="field" style=${{ flex: 1 }}><label>Ko ņemt līdzi</label><input class="input" value=${detailBringAlong} onInput=${(e) => setDetailBringAlong(e.target.value)} /></div>
@@ -1645,8 +1821,7 @@
                             <div class="field sal-attachments">
                               <label>Pielikumi</label>
                               <div class="row" style=${{ gap: ".45rem", flexWrap: "wrap" }}>
-                                <input class="input" style=${{ flex: 1 }} placeholder="Nosaukums" value=${attLabel} onInput=${(e) => setAttLabel(e.target.value)} />
-                                <input class="input" style=${{ flex: 2 }} placeholder="https://..." value=${attUrl} onInput=${(e) => setAttUrl(e.target.value)} />
+                                <input class="input" style=${{ flex: 1 }} placeholder="https://..." value=${attUrl} onInput=${(e) => setAttUrl(e.target.value)} />
                                 <button type="button" class="btn btn-ghost btn-small" onClick=${() => addAttachment("link")}>Pievienot saiti</button>
                                 <button
                                   type="button"
@@ -1684,9 +1859,12 @@
                               `)}
                             </div>
 
-                            <div class="sal-poll-box">
-                              <strong style=${{ color: "#9a3412", fontSize: ".85rem" }}>Aptaujas</strong>
-                              ${polls.map((poll, idx) => {
+                            <details class="sal-poll-box">
+                              <summary style=${{ cursor: "pointer", color: "#9a3412", fontSize: ".85rem", fontWeight: 700 }}>
+                                Aptaujas (${Array.isArray(polls) ? polls.length : 0})
+                              </summary>
+                              <div style=${{ display: "grid", gap: ".45rem", marginTop: ".4rem" }}>
+                                ${polls.map((poll, idx) => {
                                 const options = pollOptionsArray(poll.optionsText);
                                 const myVote = String((poll.votes && typeof poll.votes === "object" ? poll.votes[actorKey()] : "") || "");
                                 const summary = options.map((opt) => ({
@@ -1795,18 +1973,19 @@
                                   </div>
                                 `;
                               })}
-                              <button
-                                type="button"
-                                class="btn btn-ghost btn-small"
-                                onClick=${() =>
-                                  setPolls((prev) => [
-                                    ...(Array.isArray(prev) ? prev : []),
-                                    { id: `poll-${Date.now()}`, type: "choice", question: "", optionsText: "", votes: {}, textAnswer: "" },
-                                  ])}
-                              >
-                                + Pievienot aptauju
-                              </button>
-                            </div>
+                                <button
+                                  type="button"
+                                  class="btn btn-ghost btn-small"
+                                  onClick=${() =>
+                                    setPolls((prev) => [
+                                      ...(Array.isArray(prev) ? prev : []),
+                                      { id: `poll-${Date.now()}`, type: "choice", question: "", optionsText: "", votes: {}, textAnswer: "" },
+                                    ])}
+                                >
+                                  + Pievienot aptauju
+                                </button>
+                              </div>
+                            </details>
 
                             <div class="sal-poll-box">
                               <strong style=${{ color: "#9a3412", fontSize: ".85rem" }}>Piedalīšanās atzīme</strong>
@@ -1851,17 +2030,32 @@
                                   <div class="sal-rsvp-bar-track"><div class="sal-rsvp-bar-fill" style=${{ width: `${(rsvp.no / rsvpTotal) * 100}%`, background: "#ef4444" }}></div></div>
                                 </div>
                               </div>
-                            </div>
-
-                            <div class="field">
-                              <label>Papildu piezīmes</label>
-                              <textarea class="textarea" value=${cardNote} onInput=${(e) => setCardNote(e.target.value)}></textarea>
+                              <div class="sal-rsvp-summary-grid">
+                                <div class="sal-rsvp-summary-col">
+                                  <div class="sal-rsvp-summary-head"><span>✅ Piedalīsies</span><strong>${rsvpPeople.yes.length}</strong></div>
+                                  ${rsvpPeople.yes.length
+                                    ? html`<ul class="sal-rsvp-summary-list">${rsvpPeople.yes.map((name) => html`<li key=${`yes-${name}`}>${name}</li>`)}</ul>`
+                                    : html`<div class="sal-rsvp-summary-empty">Pagaidām nav atzīmju.</div>`}
+                                </div>
+                                <div class="sal-rsvp-summary-col">
+                                  <div class="sal-rsvp-summary-head"><span>🟡 Varbūt</span><strong>${rsvpPeople.maybe.length}</strong></div>
+                                  ${rsvpPeople.maybe.length
+                                    ? html`<ul class="sal-rsvp-summary-list">${rsvpPeople.maybe.map((name) => html`<li key=${`maybe-${name}`}>${name}</li>`)}</ul>`
+                                    : html`<div class="sal-rsvp-summary-empty">Pagaidām nav atzīmju.</div>`}
+                                </div>
+                                <div class="sal-rsvp-summary-col">
+                                  <div class="sal-rsvp-summary-head"><span>❌ Nepiedalīsies</span><strong>${rsvpPeople.no.length}</strong></div>
+                                  ${rsvpPeople.no.length
+                                    ? html`<ul class="sal-rsvp-summary-list">${rsvpPeople.no.map((name) => html`<li key=${`no-${name}`}>${name}</li>`)}</ul>`
+                                    : html`<div class="sal-rsvp-summary-empty">Pagaidām nav atzīmju.</div>`}
+                                </div>
+                              </div>
                             </div>
                           `
                         : html`<div class="sal-banner">Šim veidam kartiņas saturs būs cits (tiks pievienots nākamajos soļos).</div>`}
 
                       <div class="row" style=${{ gap: ".45rem", flexWrap: "wrap" }}>
-                        ${cardEventType === "saliedesana"
+                        ${useFullEventCard
                           ? html`<button type="submit" class="btn btn-primary btn-small">Saglabāt</button>`
                           : null}
                         ${editingId

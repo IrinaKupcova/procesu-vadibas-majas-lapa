@@ -440,10 +440,10 @@
       <!-- Lokālie dati + ziņas komandai (bez Supabase/API) -->
       <script src="./Komanda.js?v=20260422"></script>
       <script src="./IAD.js?v=20260443"></script>
-      <script src="./Saliedesana.js?v=20260420"></script>
+      <script src="./Saliedesana.js?v=20260421"></script>
       <script src="./supabase/migrations/izmainas.js?v=20260413"></script>
-      <script src="./Sodien.js?v=20260421"></script>
-      <script src="./Kalendars.js?v=20260410"></script>
+      <script src="./Sodien.js?v=20260421b"></script>
+      <script src="./Kalendars.js?v=20260421"></script>
       <script src="./Navigacija.js?v=20260422"></script>
       <script src="./Filtr.js?v=20260407"></script>
       <script src="./Saskaņošana.js?v=20260407"></script>
@@ -638,6 +638,14 @@
           );
         }
 
+        function normalizeTimeHHMM(value) {
+          const s = String(value ?? "").trim();
+          if (!s) return "";
+          const m = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(s);
+          if (!m) return s;
+          return `${String(m[1]).padStart(2, "0")}:${String(m[2]).padStart(2, "0")}`;
+        }
+
         function normalizeAbsenceRecord(r) {
           const typeRaw = pickByAliases(r, ABSENCE_ALT_KEYS.type_id, null);
           const startRaw = pickByAliases(r, ABSENCE_ALT_KEYS.start_date, "");
@@ -653,8 +661,8 @@
             type_id: typeRaw == null || typeRaw === "" ? null : Number(typeRaw),
             start_date: String(startRaw ?? ""),
             end_date: String(endRaw ?? ""),
-            laiks_no: laiksNoRaw ? String(laiksNoRaw) : null,
-            laiks_lidz: laiksLidzRaw ? String(laiksLidzRaw) : null,
+            laiks_no: laiksNoRaw ? normalizeTimeHHMM(laiksNoRaw) : null,
+            laiks_lidz: laiksLidzRaw ? normalizeTimeHHMM(laiksLidzRaw) : null,
             comment: commentRaw == null ? null : String(commentRaw),
             Mani_aizvieto: String(pickByAliases(r, ABSENCE_ALT_KEYS.mani_aizvieto, "") ?? "").trim() || null,
             Papildu_info: String(pickByAliases(r, ABSENCE_ALT_KEYS.papildu_info, "") ?? "").trim() || null,
@@ -3879,7 +3887,7 @@
           }
           if ((key === "email" || key === COL_USER_IMAIL) && String(val).includes("@")) return String(val);
           if (typeof val === "string" && /^\d{4}-\d{2}-\d{2}T/.test(val)) {
-            return val.replace("T", " ").slice(0, 19);
+            return val.replace("T", " ").slice(0, 16);
           }
           return String(val);
         }
@@ -4860,7 +4868,7 @@
         function formatDbTs(val) {
           if (val == null || val === "") return "—";
           const s = String(val);
-          if (s.length >= 19 && /^\d{4}-\d{2}-\d{2}T/.test(s)) return s.replace("T", " ").slice(0, 19);
+          if (s.length >= 16 && /^\d{4}-\d{2}-\d{2}T/.test(s)) return s.replace("T", " ").slice(0, 16);
           return s;
         }
 
@@ -5711,11 +5719,11 @@
                               (Boolean(a?.laiks_no || a?.laiks_lidz) || /^(Laika|Laikā)\s+no\s+/i.test(periodCommentRaw));
                             const timeLabel = (() => {
                               if (!timeMark) return "";
-                              const from = String(a?.laiks_no ?? "").trim();
-                              const to = String(a?.laiks_lidz ?? "").trim();
+                              const from = normalizeEditTime(a?.laiks_no ?? "");
+                              const to = normalizeEditTime(a?.laiks_lidz ?? "");
                               if (from && to) return `${from}–${to}`;
                               const m = /^(Laika|Laikā)\s+no\s+(\d{1,2}:\d{2})\s+(līdz|lidz)\s+(\d{1,2}:\d{2})/i.exec(periodCommentRaw);
-                              if (m) return `${m[2]}–${m[4]}`;
+                              if (m) return `${normalizeEditTime(m[2])}–${normalizeEditTime(m[4])}`;
                               return "Laiks";
                             })();
                             const pendingCitsRow = (() => {
@@ -6747,6 +6755,41 @@
             setPromSub(sub);
             setView("prombutnes");
           }, [view, promSub]);
+          useEffect(() => {
+            globalThis.__PDD_OPEN_SALIEDESANA_VIEW__ = () => {
+              setView("saliedesana");
+            };
+            return () => {
+              if (globalThis.__PDD_OPEN_SALIEDESANA_VIEW__) delete globalThis.__PDD_OPEN_SALIEDESANA_VIEW__;
+            };
+          }, []);
+          useEffect(() => {
+            const onOpenSalEvent = (ev) => {
+              const detail = ev?.detail && typeof ev.detail === "object" ? ev.detail : {};
+              const eventId = String(detail.eventId || "").trim();
+              const date = String(detail.date || "").trim();
+              const title = String(detail.title || "").trim();
+              globalThis.__PDD_SALIEDESANA_PENDING_OPEN_EVENT_ID__ = eventId;
+              globalThis.__PDD_SALIEDESANA_PENDING_OPEN_EVENT_DATE__ = date;
+              globalThis.__PDD_SALIEDESANA_PENDING_OPEN_EVENT_TITLE__ = title;
+              setView("saliedesana");
+              let tries = 0;
+              const t = setInterval(() => {
+                tries += 1;
+                const openNow = globalThis.__PDD_SALIEDESANA_OPEN_EVENT_CARD__;
+                if (typeof openNow === "function") {
+                  const ok = openNow({ eventId, date, title });
+                  if (ok) {
+                    clearInterval(t);
+                    return;
+                  }
+                }
+                if (tries >= 24) clearInterval(t);
+              }, 140);
+            };
+            window.addEventListener("pdd:open-saliedesana-event", onOpenSalEvent);
+            return () => window.removeEventListener("pdd:open-saliedesana-event", onOpenSalEvent);
+          }, []);
           const handleGoBack = useCallback(() => {
             setNavPast((p) => {
               if (p.length === 0) return p;

@@ -47,13 +47,36 @@ async function fetchAuthorNameMap(sb, rawRows) {
       if (uid && label) m.set(normUserId(uid), label);
     }
   }
-  const userCols = 'id, email, full_name, "Vārds uzvārds", "i-mail"';
+  const userCols = 'id, email, "e-mail", full_name, "Vārds uzvārds", "i-mail"';
+  // Primāri mēģinām vienā pieprasījumā visus autorus.
+  const { data: batchRows, error: batchErr } = await sb.from("users").select(userCols).in("id", ids);
+  if (!batchErr && Array.isArray(batchRows)) {
+    for (const one of batchRows) {
+      const uid = pick(one?.id);
+      const label = extractUserDisplayName(one);
+      if (uid && label) m.set(normUserId(uid), label);
+    }
+  }
+  // Rezerves ceļš: pa vienam autoram.
   for (const id of ids) {
     const nk = normUserId(id);
     if (m.has(nk)) continue;
     const { data: one } = await sb.from("users").select(userCols).eq("id", id).maybeSingle();
     const label = extractUserDisplayName(one);
     if (label) m.set(nk, label);
+  }
+  // Pēdējais fallback: lokāli ielādētā KOMANDA (ja DB users piekļuve ierobežota).
+  if (m.size < ids.length) {
+    const team = Array.isArray(globalThis.KOMANDA?.loadTeamUsers?.()) ? globalThis.KOMANDA.loadTeamUsers() : [];
+    if (team.length) {
+      for (const id of ids) {
+        const nk = normUserId(id);
+        if (m.has(nk)) continue;
+        const byId = team.find((u) => normUserId(u?.id) === nk);
+        const label = extractUserDisplayName(byId);
+        if (label) m.set(nk, label);
+      }
+    }
   }
   return m;
 }
@@ -139,6 +162,10 @@ function pick(v) {
   return String(v ?? "").trim();
 }
 
+function isSaliedesanaAktualitateHtml(html) {
+  return /SALIEDESANA:/i.test(String(html || ""));
+}
+
 function escHtml(s) {
   return String(s ?? "")
     .replace(/&/g, "&amp;")
@@ -174,9 +201,17 @@ function typeName(a) {
   return pick(a?.type?.name || a?.type_id) || "—";
 }
 
+function normalizeTimeHHMM(value) {
+  const s = pick(value);
+  if (!s) return "";
+  const m = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(s);
+  if (!m) return s;
+  return `${String(m[1]).padStart(2, "0")}:${String(m[2]).padStart(2, "0")}`;
+}
+
 function timeInterval(a) {
-  const from = pick(a?.laiks_no || a?.Laiks_no || a?.laiksNo || "");
-  const to = pick(a?.laiks_lidz || a?.Laiks_lidz || a?.laiksLidz || "");
+  const from = normalizeTimeHHMM(a?.laiks_no || a?.Laiks_no || a?.laiksNo || "");
+  const to = normalizeTimeHHMM(a?.laiks_lidz || a?.Laiks_lidz || a?.laiksLidz || "");
   if (from && to) return `${from}–${to}`;
   if (from) return `no ${from}`;
   if (to) return `līdz ${to}`;
@@ -262,6 +297,18 @@ function stableSyntheticRowId(html, start, end, autorsOrTag) {
 
 function authorLabelFromDbRow(r, nameMap) {
   const aid = pick(r?.Autors ?? r?.autors);
+  const directLabel = pick(
+    r?.authorLabel ??
+      r?.author_label ??
+      r?.Autors_vards ??
+      r?.autors_vards ??
+      r?.created_by_name ??
+      r?.created_by_email ??
+      r?.["Vārds uzvārds"] ??
+      r?.full_name ??
+      r?.email,
+  );
+  if (directLabel) return directLabel;
   const aidN = normUserId(aid);
   if (nameMap && aidN && nameMap.has(aidN)) return nameMap.get(aidN);
   const sid = normUserId(globalThis.__PDD_SESSION_USER_ID__);
@@ -281,12 +328,21 @@ function authorLabelFromDbRow(r, nameMap) {
     const n = extractUserDisplayName(emb[0]);
     if (n) return n;
   }
+  if (aid) {
+    const team = Array.isArray(globalThis.KOMANDA?.loadTeamUsers?.()) ? globalThis.KOMANDA.loadTeamUsers() : [];
+    const byId = team.find((u) => normUserId(u?.id) === aidN);
+    const teamName = pick(byId?.["Vārds uzvārds"] ?? byId?.full_name);
+    if (teamName) return teamName;
+  }
+  const actorName = pick(globalThis.__PDD_ACTOR_DISPLAY_NAME__ ?? sessionStorage.getItem("pdd_local_name") ?? "");
+  if (actorName) return actorName;
   return "—";
 }
 
 function rowFromDb(r, nameMap) {
   if (!r || typeof r !== "object") return null;
   const html = pick(r.Kas_sodien_vel_aktuals ?? r.kas_sodien_vel_aktuals);
+  if (isSaliedesanaAktualitateHtml(html)) return null;
   const start = toDateInput(r.Sakums ?? r.sakums);
   const end = toDateInput(r.Beigas ?? r.beigas);
   const created_at = pick(r.created_at);
@@ -363,7 +419,7 @@ async function removeStorageAttachmentsForItem(sb, item) {
 
 function visibleAktualitatesActive() {
   const today = ymd(new Date());
-  const cleaned = cleanExpired(loadAktualitates());
+  const cleaned = cleanExpired(loadAktualitates()).filter((x) => !isSaliedesanaAktualitateHtml(x?.html));
   saveAktualitates(cleaned);
   return cleaned.filter((x) => {
     const e = pick(x.end || "");
@@ -743,6 +799,7 @@ async function addAktualitate() {
           alert("Nav pieslēgta lietotāja sesijas — nevar saglabāt (vajag auth.uid() RLS politikai).");
           return;
         }
+        if (!pick(globalThis.__PDD_SESSION_USER_ID__)) globalThis.__PDD_SESSION_USER_ID__ = uid;
         const { error } = await sb.from(t).insert({ ...payload, Autors: uid });
         if (error) throw error;
       }

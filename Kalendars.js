@@ -378,6 +378,21 @@
     window.addEventListener("storage", (ev) => {
       if (ev.key === LS_CALENDAR_VIEW_MODE) scheduleRefresh();
     });
+    // Dažreiz kalendāra režģis ielādējas pēc sākotnējā mount bez tūlītējas mutācijas;
+    // īss bootstrap cikls garantē, ka izvēlne/skats parādās uzreiz.
+    let bootRuns = 0;
+    const bootTimer = setInterval(() => {
+      refreshAllCalendarWraps();
+      bootRuns += 1;
+      const hasSelector = Boolean(document.querySelector(".cal-wrap .pdd-cal-view-select"));
+      if (hasSelector || bootRuns >= 40) clearInterval(bootTimer);
+    }, 200);
+    // Papildus drošība: klikšķi uz mēneša bultām vienmēr pārvelk saglabāto skatu.
+    document.addEventListener("click", (ev) => {
+      const t = ev.target instanceof Element ? ev.target.closest(".cal-wrap .cal-head .btn") : null;
+      if (!t) return;
+      setTimeout(() => refreshAllCalendarWraps(), 0);
+    });
   }
 
   window.KALENDARS = {
